@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../docker-compose.yaml
+    kompose.version: 1.22.0 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: budibase-app
+  name: budibase-app
+spec:
+  ports:
+    - name: "4002"
+      port: 4002
+      targetPort: 4002
+  selector:
+    io.kompose.service: budibase-app
+status:
+  loadBalancer: {}

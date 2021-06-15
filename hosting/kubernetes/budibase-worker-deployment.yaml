@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../docker-compose.yaml
+    kompose.version: 1.22.0 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: worker-service
+  name: worker-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: worker-service
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f ../docker-compose.yaml
+        kompose.version: 1.22.0 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: worker-service
+    spec:
+      containers:
+        - env:
+            - name: CLUSTER_PORT
+            - name: COUCH_DB_PASSWORD
+            - name: COUCH_DB_URL
+              value: http://:@couchdb-service:5984
+            - name: COUCH_DB_USERNAME
+            - name: INTERNAL_API_KEY
+            - name: JWT_SECRET
+            - name: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+            - name: MINIO_URL
+              value: http://minio-service:9000
+            - name: PORT
+              value: "4003"
+            - name: REDIS_PASSWORD
+            - name: REDIS_URL
+              value: redis-service:6379
+            - name: SELF_HOSTED
+              value: "1"
+          image: budibase/worker
+          name: bbworker
+          ports:
+            - containerPort: 4003
+          resources: {}
+          volumeMounts:
+            - mountPath: /logs
+              name: worker-service-claim0
+      restartPolicy: Always
+      volumes:
+        - name: worker-service-claim0
+          persistentVolumeClaim:
+            claimName: worker-service-claim0
+status: {}

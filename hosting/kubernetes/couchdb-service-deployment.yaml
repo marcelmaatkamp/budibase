@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../docker-compose.yaml
+    kompose.version: 1.22.0 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: couchdb-service
+  name: couchdb-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: couchdb-service
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f ../docker-compose.yaml
+        kompose.version: 1.22.0 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: couchdb-service
+    spec:
+      containers:
+        - env:
+            - name: COUCHDB_PASSWORD
+            - name: COUCHDB_USER
+          image: ibmcom/couchdb3
+          name: couchdb-service
+          ports:
+            - containerPort: 5984
+          resources: {}
+          volumeMounts:
+            - mountPath: /opt/couchdb/data
+              name: couchdb3-data
+      restartPolicy: Always
+      volumes:
+        - name: couchdb3-data
+          persistentVolumeClaim:
+            claimName: couchdb3-data
+status: {}

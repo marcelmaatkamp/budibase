@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../docker-compose.yaml
+    kompose.version: 1.22.0 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: couch-init
+  name: couch-init
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: couch-init
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f ../docker-compose.yaml
+        kompose.version: 1.22.0 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: couch-init
+    spec:
+      containers:
+        - args:
+            - sh
+            - -c
+            - sleep 10 && ${PUT_CALL}/_users && ${PUT_CALL}/_replicator; fg;
+          env:
+            - name: PUT_CALL
+              value: 'curl -u : -X PUT couchdb-service:5984'
+          image: curlimages/curl
+          name: couch-init
+          resources: {}
+      restartPolicy: Always
+status: {}
