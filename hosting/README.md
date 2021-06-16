@@ -21,6 +21,22 @@ $ alias helm="microk8s helm3"
 $ alias kubectl="microk8s kubectl"
 ```
 
+### ubuntu
+```
+$ sudo apt-get update &&\
+  sudo apt-get install \
+   kubeadm kubelet kubectl 
+
+$ # disable sandbox (--devmode) so helm can access ${HOME}/.kube/config
+$ sudo snap install helm3 --devmode &&\
+  alias helm=helm3 &&\
+  export KUBECONFIG=${HOME}/.kube/config
+
+$ curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 &&\
+  sudo install minikube-linux-amd64 /usr/local/bin/minikube &&\
+  minikube start
+```
+
 ## kubernetes
 
 ```
