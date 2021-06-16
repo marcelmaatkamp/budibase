@@ -15,12 +15,14 @@ https://microk8s.io
 ### mac
 ```
 $ brew install ubuntu/microk8s/microk8s
-$ microk8s install
-$ microk8s helm3 init 
+$ microk8s install &&\
+  microk8s enable helm3 
+ 
 $ alias helm="microk8s helm3"
 $ alias kubectl="microk8s kubectl"
 ```
 
+<<<<<<< HEAD
 ### ubuntu
 ```
 $ sudo apt-get update &&\
@@ -35,6 +37,13 @@ $ sudo snap install helm3 --devmode &&\
 $ curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 &&\
   sudo install minikube-linux-amd64 /usr/local/bin/minikube &&\
   minikube start
+=======
+#### network
+```
+microk8s shell:
+$ sudo iptables -P FORWARD ACCEPT
+$ sudo apt-get update && apt-get install iptables-persistent
+>>>>>>> ae966540287914ae399bde83be12ef46112b81a0
 ```
 
 ## kubernetes
@@ -48,18 +57,53 @@ $ # create namespace
 $ kubectl create namespace ${BUDIBASE_NS}
 
 $ # install redis
+$ # 
+$ # installation values can be found at
+$ #  https://github.com/bitnami/charts/blob/master/bitnami/redis/values.yaml
+$ # 
 $ helm repo add bitnami https://charts.bitnami.com/bitnami &&\
   helm repo update &&\
   helm install \
    --namespace ${BUDIBASE_NS} \
-   budibase-redis bitnami/redis
+   --set auth.password=${REDIS_PASSWORD} \
+    budibase-redis bitnami/redis
+
+$ # redis hostname: budibase-redis-master.budibase.svc.cluster.local
 
 $ # install couchdb
-$ helm repo add couchdb https://apache.github.io/couchdb-helm &&\
-  helm repo update &&\
+$ # 
+$ # installation values can be found at
+$ #  https://apache.googlesource.com/couchdb-helm/+/refs/heads/main/couchdb/values.yaml
+$ #
+$ helm repo add couchdb https://apache.github.io/couchdb-helm
+  helm repo update
   helm install \
    --namespace ${BUDIBASE_NS} \
-   budibase-couchdb couchdb/couchdb
+   --set couchdbConfig.couchdb.uuid=$(curl https://www.uuidgenerator.net/api/version4 2>/dev/null | tr -d -) \
+   --set adminUsername=${COUCH_DB_USER} \
+   --set adminPassword=${COUCH_DB_PASSWORD} \
+    budibase-couchdb couchdb/couchdb
+
+$ # check status with
+$ kubectl get pods --namespace budibase -l "app=couchdb,release=budibase-couchdb"
+$ # Once all of the Pods are fully Ready, execute the following command to create
+$ # some required system databases:
+
+$ kubectl exec --namespace budibase -it budibase-couchdb-couchdb-0 -c couchdb -- bash
+ % curl -X PUT  http://budibase:budibase@localhost:5984/_users; \
+   curl -X PUT  http://budibase:budibase@localhost:5984/_replicator; \
+   curl -X PUT  http://budibase:budibase@localhost:5984/_global_changes; \
+   curl -X POST http://budibase:budibase@localhost:5984/_cluster_setup \
+    -H "Content-Type: application/json" \
+    -d '{"action": "finish_cluster"}'
+
+$ kubectl exec --namespace budibase -it budibase-couchdb-couchdb-0 -c couchdb -- \
+    curl -s \
+    http://127.0.0.1:5984/_cluster_setup \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"action": "finish_cluster"}' \
+    -u ${COUCH_DB_USER}
 
 $ # install minio/operator via krew
 $ ## install krew for kubectl
@@ -113,6 +157,11 @@ $ #  prefix: "/"           minio-service
     nginx.ingress.kubernetes.io/rewrite-target: /
 ```
 
+## uninstall
+```
+$ helm uninstall --namespace ${BUDIBASE_NS} budibase-couchdb 
+```
+
 ## variables
 
 | name                 | values     |
@@ -131,4 +180,5 @@ $ #  prefix: "/"           minio-service
 | COUCH_DB_PORT        | 4005       |
 | REDIS_PORT           | 6379       |
 | BUDIBASE_ENVIRONMENT | PRODUCTION |
+
 
