@@ -16,12 +16,9 @@ https://microk8s.io
 ```
 $ brew install ubuntu/microk8s/microk8s
 $ microk8s install
-$ alias helm="microk8s helm"
-$ helm init --client-only --skip-refresh
-$ helm init \
-   --stable-repo-url https://charts.helm.sh/stable \
-   --client-only \
-   --skip-refresh
+$ microk8s helm3 init 
+$ alias helm="microk8s helm3"
+$ alias kubectl="microk8s kubectl"
 ```
 
 ## kubernetes
@@ -31,6 +28,7 @@ $ # set environment variables
 $ BUDIBASE_NS=budibase
 $ source hosting.properties
 
+$ # create namespace
 $ kubectl create namespace ${BUDIBASE_NS}
 
 $ # install redis
@@ -38,16 +36,14 @@ $ helm repo add bitnami https://charts.bitnami.com/bitnami &&\
   helm repo update &&\
   helm install \
    --namespace ${BUDIBASE_NS} \
-   --name budibase-redis \
-   bitnami/redis
+   budibase-redis bitnami/redis
 
 $ # install couchdb
 $ helm repo add couchdb https://apache.github.io/couchdb-helm &&\
   helm repo update &&\
   helm install \
    --namespace ${BUDIBASE_NS} \
-   --name budibase-couchdb \
-   couchdb/couchdb
+   budibase-couchdb couchdb/couchdb
 
 $ # install minio/operator via krew
 $ ## install krew for kubectl
