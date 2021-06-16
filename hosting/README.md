@@ -105,9 +105,11 @@ $ kubectl minio tenant \
     --capacity 100Mb \
     --storage-class standard 
 
-$ kubectl apply \
-   --namespace ${BUDIBASE_NS} \
-   -f https://raw.githubusercontent.com/minio/operator/master/examples/tenant-lite.yaml
+$ MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
+  MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
+   envsubst < budibase-minio-tenant.yaml | \
+    kubectl apply \
+     --namespace ${BUDIBASE_NS} -f -
 
 $ # check minio tenant UI
 $ kubectl minio proxy -n minio-operator
@@ -154,9 +156,10 @@ $ #  prefix: "/"           minio-service
 
 ## uninstall
 ```
-$ helm uninstall --namespace ${BUDIBASE_NS} budibase-redis
-$ helm uninstall --namespace ${BUDIBASE_NS} budibase-couchdb 
-$ helm uninstall --namespace ${BUDIBASE_NS} budibase-minio
+$ \
+ helm uninstall --namespace ${BUDIBASE_NS} budibase-redis &&\
+ helm uninstall --namespace ${BUDIBASE_NS} budibase-couchdb &&\
+ helm uninstall --namespace ${BUDIBASE_NS} budibase-minio
 ```
 
 ## variables
