@@ -105,7 +105,8 @@ $ kubectl minio tenant \
     --capacity 100Mb \
     --storage-class standard 
 
-$ MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
+$ BUDIBASE_NS=${BUDIBASE_NS} \
+  MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
   MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
    envsubst < budibase-minio-tenant.yaml | \
     kubectl apply \
@@ -113,18 +114,6 @@ $ MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
 
 $ # check minio tenant UI
 $ kubectl minio proxy -n minio-operator
-
-$ # OR install minio via helm (deprecated)
-$ helm repo add minio https://helm.min.io &&\
-  helm repo update &&\
-  helm install \
-   --namespace ${BUDIBASE_NS} \
-   --set \kubectl apply                           
-   --namespace ${BUDIBASE_NS} \
-   -f https://github.com/minio/operator/blob/master/examples/tenant-lite.yaml
-    accessKey=budibase,\
-    secretKey=budibase \
-   budibase-minio minio/minio
 
 $ # install budibase  
 $ kustomize build kubernetes | \
