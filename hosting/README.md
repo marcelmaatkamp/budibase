@@ -48,18 +48,19 @@ $ curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linu
 
 ## kubernetes
 ```
-$ # set environment variables
+$ # environment variables
 $ BUDIBASE_NS=budibase
 $ source hosting.properties
 
 $ # create namespace
 $ kubectl create namespace ${BUDIBASE_NS}
 
+$ # -------------
 $ # install redis
-$ # 
-$ # installation values can be found at
-$ #  https://github.com/bitnami/charts/blob/master/bitnami/redis/values.yaml
-$ # 
+$ # -------------
+$ # installation values for redis can be found at
+$ #  - https://github.com/bitnami/charts/blob/master/bitnami/redis/values.yaml
+ 
 $ helm repo add bitnami https://charts.bitnami.com/bitnami &&\
   helm repo update &&\
   helm install \
@@ -67,13 +68,12 @@ $ helm repo add bitnami https://charts.bitnami.com/bitnami &&\
    --set auth.password=${REDIS_PASSWORD} \
     budibase-redis bitnami/redis
 
-$ # redis hostname: budibase-redis-master.budibase.svc.cluster.local
-
+$ # ---------------
 $ # install couchdb
-$ # 
-$ # installation values can be found at
-$ #  https://apache.googlesource.com/couchdb-helm/+/refs/heads/main/couchdb/values.yaml
-$ #
+$ # ---------------
+$ # installation values for couchdb can be found at
+$ #  - https://apache.googlesource.com/couchdb-helm/+/refs/heads/main/couchdb/values.yaml
+
 $ helm repo add couchdb https://apache.github.io/couchdb-helm &&\
   helm repo update &&\
   helm install \
@@ -82,6 +82,10 @@ $ helm repo add couchdb https://apache.github.io/couchdb-helm &&\
    --set adminUsername=${COUCH_DB_USER} \
    --set adminPassword=${COUCH_DB_PASSWORD} \
     budibase-couchdb couchdb/couchdb
+
+$ # -------------
+$ # install minio
+$ # -------------
 
 $ # install krew for kubectl
 $ (
@@ -142,6 +146,12 @@ $ #  prefix: "/"           minio-service
 
     nginx.ingress.kubernetes.io/rewrite-target: /
 ```
+
+### hostnames
+
+| name | value | port | 
+| -- | -- |
+| redis-master | budibase-redis-master.budibase.svc.cluster.local | |
 
 ## uninstall
 ```
