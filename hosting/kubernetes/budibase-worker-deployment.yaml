@@ -6,13 +6,13 @@ metadata:
     kompose.version: 1.22.0 (HEAD)
   creationTimestamp: null
   labels:
-    io.kompose.service: worker-service
-  name: worker-service
+    io.kompose.service: budibase-worker
+  name: budibase-worker
 spec:
   replicas: 1
   selector:
     matchLabels:
-      io.kompose.service: worker-service
+      io.kompose.service: budibase-worker
   strategy:
     type: Recreate
   template:
@@ -22,26 +22,58 @@ spec:
         kompose.version: 1.22.0 (HEAD)
       creationTimestamp: null
       labels:
-        io.kompose.service: worker-service
+        io.kompose.service: budibase-worker
     spec:
       containers:
         - env:
             - name: CLUSTER_PORT
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: MAIN_PORT
+            - name: COUCH_DB_USER
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: COUCH_DB_USER
             - name: COUCH_DB_PASSWORD
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: COUCH_DB_PASSWORD
             - name: COUCH_DB_URL
-              value: http://:@couchdb-service:5984
-            - name: COUCH_DB_USERNAME
+              value: http://${COUCH_DB_USER}:${COUCH_DB_PASSWORD}@budibase-couchdb:5984
             - name: INTERNAL_API_KEY
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: INTERNAL_API_KEY
             - name: JWT_SECRET
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: JWT_SECRET
             - name: MINIO_ACCESS_KEY
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: MINIO_ACCESS_KEY
             - name: MINIO_SECRET_KEY
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: MINIO_SECRET_KEY
             - name: MINIO_URL
-              value: http://minio-service:9000
+              value: http://budibase-minio-hl:9000
             - name: PORT
               value: "4003"
             - name: REDIS_PASSWORD
+              valueFrom:
+               configMapKeyRef:
+                name: budibase-config
+                key: REDIS_PASSWORD
             - name: REDIS_URL
-              value: redis-service:6379
+              value: budibase-redis-master:6379
             - name: SELF_HOSTED
               value: "1"
           image: budibase/worker
@@ -51,10 +83,10 @@ spec:
           resources: {}
           volumeMounts:
             - mountPath: /logs
-              name: worker-service-claim0
+              name: budibase-worker-claim0
       restartPolicy: Always
       volumes:
-        - name: worker-service-claim0
+        - name: budibase-worker-claim0
           persistentVolumeClaim:
-            claimName: worker-service-claim0
+            claimName: budibase-worker-claim0
 status: {}

@@ -92,7 +92,7 @@ $ \
    --set couchdbConfig.couchdb.uuid=$(curl https://www.uuidgenerator.net/api/version4 2>/dev/null | tr -d -) \
    --set adminUsername=${COUCH_DB_USER} \
    --set adminPassword=${COUCH_DB_PASSWORD} \
-    budibase-couchdb couchdb/couchdb
+    budibase couchdb/couchdb
 
 $ # -------------
 $ # install minio
@@ -134,61 +134,70 @@ $ \
      --namespace ${BUDIBASE_NS} -f -
 
 $ # to check minio, use `kubectl minio proxy -n minio-operator`
-
-$ # if everything went alright, the folling output should be visible
-$ \
-  $ kubectl --namespace ${BUDIBASE_NS} get all
-
-NAME                                          READY   STATUS    RESTARTS   AGE
-pod/budibase-couchdb-couchdb-0                1/1     Running   1          1h
-pod/budibase-couchdb-couchdb-1                1/1     Running   1          1h
-pod/budibase-couchdb-couchdb-2                1/1     Running   3          1h
-pod/budibase-minio-console-8655458f4c-68qgj   1/1     Running   1          1h
-pod/budibase-minio-console-8655458f4c-rnbnk   1/1     Running   1          1h
-pod/budibase-minio-ss-0-0                     1/1     Running   1          1h
-pod/budibase-minio-ss-0-1                     1/1     Running   1          1h
-pod/budibase-minio-ss-0-2                     1/1     Running   1          1h
-pod/budibase-minio-ss-0-3                     1/1     Running   1          1h
-pod/budibase-redis-master-0                   1/1     Running   1          1h
-pod/budibase-redis-replicas-0                 1/1     Running   2          1h
-pod/budibase-redis-replicas-1                 1/1     Running   1          1h
-pod/budibase-redis-replicas-2                 1/1     Running   1          1h
-
-NAME                                   TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
-service/budibase-couchdb-couchdb       ClusterIP   None             <none>        5984/TCP   1h
-service/budibase-couchdb-svc-couchdb   ClusterIP   10.109.134.235   <none>        5984/TCP   1h
-service/budibase-minio-console         ClusterIP   10.101.102.146   <none>        9090/TCP   1h
-service/budibase-minio-hl              ClusterIP   None             <none>        9000/TCP   1h
-service/budibase-redis-headless        ClusterIP   None             <none>        6379/TCP   1h
-service/budibase-redis-master          ClusterIP   10.101.112.212   <none>        6379/TCP   1h
-service/budibase-redis-replicas        ClusterIP   10.110.90.209    <none>        6379/TCP   1h
-service/minio                          ClusterIP   10.105.144.240   <none>        80/TCP     1h
-
-NAME                                     READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/budibase-minio-console   2/2     2            2           1h
-
-NAME                                                DESIRED   CURRENT   READY   AGE
-replicaset.apps/budibase-minio-console-8655458f4c   2         2         2       1h
-
-NAME                                        READY   AGE
-statefulset.apps/budibase-couchdb-couchdb   3/3     1h
-statefulset.apps/budibase-minio-ss-0        4/4     1h
-statefulset.apps/budibase-redis-master      1/1     1h
-statefulset.apps/budibase-redis-replicas    3/3     1h
 ```
 
 ## budibase 
 With couchdb, redis and minio installed succesfully, we can now install budibase
 ```
-$ \
-  sudo snap install kustomize
-
 $ # install budibase  
 $ \
-  kustomize build kubernetes | \
+  kubectl kustomize kubernetes | \
    kubectl \
     --namespace ${BUDIBASE_NS} \
      apply -f -
+```
+
+## verify 
+if everything went alright, the folling output should be visible
+```
+$ \
+  kubectl --namespace ${BUDIBASE_NS} get all
+
+NAME                                          READY   STATUS    RESTARTS   AGE
+pod/budibase-app-7c68f49d88-zx7b6             1/1     Running   0          14s
+pod/budibase-couchdb-0                        1/1     Running   0          15m
+pod/budibase-couchdb-1                        1/1     Running   0          15m
+pod/budibase-couchdb-2                        1/1     Running   0          15m
+pod/budibase-minio-console-8655458f4c-k75rq   1/1     Running   0          12m
+pod/budibase-minio-console-8655458f4c-zz6k7   1/1     Running   0          12m
+pod/budibase-minio-ss-0-0                     1/1     Running   0          13m
+pod/budibase-minio-ss-0-1                     1/1     Running   0          13m
+pod/budibase-minio-ss-0-2                     1/1     Running   0          13m
+pod/budibase-minio-ss-0-3                     1/1     Running   0          13m
+pod/budibase-redis-master-0                   1/1     Running   0          14m
+pod/budibase-redis-replicas-0                 1/1     Running   1          14m
+pod/budibase-redis-replicas-1                 1/1     Running   0          13m
+pod/budibase-redis-replicas-2                 1/1     Running   0          13m
+pod/budibase-worker-7f4cf479bc-vkx5z          1/1     Running   0          14s
+
+NAME                              TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+service/budibase-app              ClusterIP   10.99.57.185     <none>        4002/TCP   14s
+service/budibase-couchdb          ClusterIP   None             <none>        5984/TCP   15m
+service/budibase-minio-console    ClusterIP   10.96.4.104      <none>        9090/TCP   12m
+service/budibase-minio-hl         ClusterIP   None             <none>        9000/TCP   13m
+service/budibase-redis-headless   ClusterIP   None             <none>        6379/TCP   14m
+service/budibase-redis-master     ClusterIP   10.103.49.115    <none>        6379/TCP   14m
+service/budibase-redis-replicas   ClusterIP   10.100.180.235   <none>        6379/TCP   14m
+service/budibase-svc-couchdb      ClusterIP   10.103.72.21     <none>        5984/TCP   15m
+service/budibase-worker           ClusterIP   10.111.113.199   <none>        4003/TCP   14s
+service/minio                     ClusterIP   10.105.121.148   <none>        80/TCP     13m
+
+NAME                                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/budibase-app             1/1     1            1           14s
+deployment.apps/budibase-minio-console   2/2     2            2           12m
+deployment.apps/budibase-worker          1/1     1            1           14s
+
+NAME                                                DESIRED   CURRENT   READY   AGE
+replicaset.apps/budibase-app-7c68f49d88             1         1         1       14s
+replicaset.apps/budibase-minio-console-8655458f4c   2         2         2       12m
+replicaset.apps/budibase-worker-7f4cf479bc          1         1         1       14s
+
+NAME                                       READY   AGE
+statefulset.apps/budibase-couchdb          3/3     15m
+statefulset.apps/budibase-minio-ss-0       4/4     13m
+statefulset.apps/budibase-redis-master     1/1     14m
+statefulset.apps/budibase-redis-replicas   3/3     14m
+```
 
 ### ingres routes
 When you want to make a new site you have to go to `/builder/` which has to map to the `budibase-app`-service container in kubernetes. When finised building your site, Budibase installs the finished web-app in the `minio`-service in kubernetes in its own bucket and that bucket has to map to the root ('/') of your site.
@@ -221,18 +230,26 @@ $ #  prefix: "/"           minio
 `nginx.ingress.kubernetes.io/rewrite-target: /`
 ```
 
-### hostnames
-
-| name | value | port | 
-| -- | -- | -- |
-| redis-master | budibase-redis-master.budibase.svc.cluster.local | |
-
 ## uninstall
 ```
 $ \
+  kustomize build kubernetes | \
+   kubectl \
+    --namespace ${BUDIBASE_NS} \
+     delete -f - &&\
  helm uninstall --namespace ${BUDIBASE_NS} budibase-redis &&\
  helm uninstall --namespace ${BUDIBASE_NS} budibase-couchdb &&\
- helm uninstall --namespace ${BUDIBASE_NS} budibase-minio
+ BUDIBASE_NS=${BUDIBASE_NS} \
+ MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
+ MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
+  envsubst < budibase-minio-tenant.yaml | \
+   kubectl delete \
+    --namespace ${BUDIBASE_NS} -f -
+
+$ \
+  kubectl --namespace ${BUDIBASE_NS} get all
+
+No resources found in budibase namespace.
 ```
 
 ## variables
@@ -254,4 +271,8 @@ $ \
 | REDIS_PORT           | 6379       |
 | BUDIBASE_ENVIRONMENT | PRODUCTION |
 
+## hostnames
 
+| name | value | port |
+| -- | -- | -- |
+| redis-master | budibase-redis-master.budibase.svc.cluster.local | |

@@ -3,8 +3,8 @@ kind: PersistentVolumeClaim
 metadata:
   creationTimestamp: null
   labels:
-    io.kompose.service: worker-service-claim0
-  name: worker-service-claim0
+    io.kompose.service: budibase-worker-claim0
+  name: budibase-worker-claim0
 spec:
   accessModes:
     - ReadWriteOnce

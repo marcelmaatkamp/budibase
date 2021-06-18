@@ -6,14 +6,14 @@ metadata:
     kompose.version: 1.22.0 (HEAD)
   creationTimestamp: null
   labels:
-    io.kompose.service: worker-service
-  name: worker-service
+    io.kompose.service: budibase-worker
+  name: budibase-worker
 spec:
   ports:
     - name: "4003"
       port: 4003
       targetPort: 4003
   selector:
-    io.kompose.service: worker-service
+    io.kompose.service: budibase-worker
 status:
   loadBalancer: {}
