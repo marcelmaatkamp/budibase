@@ -9,31 +9,8 @@ $ docker-compose up -d
 ## kubernetes
 If you want to use Kubernetes use the following commands:
 
-### mac
-To install kubernets on a mac use https://microk8s.io 
-
-(!!! NOTE !!!: this works up to the point containers want to talk to outside resources, couchdb fails to install properly in this setup when there are network problem but these are the steps I took)
-
-```
-$ brew install ubuntu/microk8s/microk8s
-$ microk8s install &&\
-  microk8s enable helm3 
- 
-$ alias helm="microk8s helm3"
-$ alias kubectl="microk8s kubectl"
-```
-
-#### network
-(!!! NOTE !!!: somebody suggested that this should be done in the host-os, which in microk8s is probably the 'multipass'-vm)
-```
-microk8s shell:
-$ sudo iptables -P FORWARD ACCEPT
-$ sudo apt-get update &&\
-  sudo apt-get install iptables-persistent
-```
-
-### ubuntu
-Installing kubernetes in ubuntu is simple, use the following commands to install Kubernetes on a local machine:
+### Ubuntu
+Installing kubernetes in Ubuntu is simple, use the following commands to install Kubernetes on a local machine:
 ```
 $ \
   curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 &&\
@@ -55,12 +32,16 @@ $ \
 ## couchdb, redis and minio
 Now that kubernetes and tools are installed, we can install couchdb redis and minio
 ```
+$ # -------------------------
 $ # set environment variables
+$ # -------------------------
 $ \
   BUDIBASE_NS=budibase &&\
   source hosting.properties
 
+$ # ----------------
 $ # create namespace
+$ # ----------------
 $ \
   kubectl create namespace ${BUDIBASE_NS}
 
@@ -69,7 +50,6 @@ $ # install redis
 $ # -------------
 $ # installation values for redis can be found at
 $ #  - https://github.com/bitnami/charts/blob/master/bitnami/redis/values.yaml
- 
 $ \
   helm repo add bitnami https://charts.bitnami.com/bitnami &&\
   helm repo update &&\
@@ -83,7 +63,6 @@ $ # install couchdb
 $ # ---------------
 $ # installation values for couchdb can be found at
 $ #  - https://apache.googlesource.com/couchdb-helm/+/refs/heads/main/couchdb/values.yaml
-
 $ \
   helm repo add couchdb https://apache.github.io/couchdb-helm &&\
   helm repo update &&\
@@ -94,10 +73,9 @@ $ \
    --set adminPassword=${COUCH_DB_PASSWORD} \
     budibase couchdb/couchdb
 
-$ # -------------
-$ # install minio
-$ # -------------
-
+$ # ------------
+$ # install krew
+$ # ------------
 $ # install krew for kubectl
 $ \
   (
@@ -113,7 +91,9 @@ $ \
 $ \
   export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
+$ # ----------------------
 $ # install minio-operator
+$ # ----------------------
 $ \
   kubectl krew install minio &&\
   kubectl minio init &&\
@@ -124,7 +104,9 @@ $ \
     --capacity 100Mb \
     --storage-class standard 
 
-$ # install minio in the namespace
+$ # -------------
+$ # install minio
+$ # -------------
 $ \
   BUDIBASE_NS=${BUDIBASE_NS} \
   MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
@@ -139,7 +121,9 @@ $ # to check minio, use `kubectl minio proxy -n minio-operator`
 ## budibase 
 With couchdb, redis and minio installed succesfully, we can now install budibase
 ```
-$ # install budibase  
+$ # ---------------- 
+$ # install budibase 
+$ # ---------------- 
 $ \
   kubectl kustomize kubernetes | \
    kubectl \
