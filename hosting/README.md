@@ -190,7 +190,7 @@ All those mappings have to be specified in kubernetes in the ingres-controller w
 (TBD: use nginx, traefik or kong, or maybe all of them)
 
 The mappings are: 
-
+```
 $ # set routes 
 $ # App:
 $ #  path:   "/"           budibase-app
@@ -210,26 +210,30 @@ $ #  prefix: "/db/"        couchdb, prefix_rewrite: "/"
 # $ Minio
 $ #  prefix: "/"           minio
 
-
 `nginx.ingress.kubernetes.io/rewrite-target: /`
 ```
 
 ## uninstall
+To uninstall all budibase,minio,couchdb and redis 
 ```
+$ # -----------------
+$ # delete everything
+$ # -----------------
 $ \
   kustomize build kubernetes | \
    kubectl \
     --namespace ${BUDIBASE_NS} \
      delete -f - &&\
- helm uninstall --namespace ${BUDIBASE_NS} budibase-redis &&\
- helm uninstall --namespace ${BUDIBASE_NS} budibase-couchdb &&\
- BUDIBASE_NS=${BUDIBASE_NS} \
- MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
- MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
-  envsubst < budibase-minio-tenant.yaml | \
-   kubectl delete \
-    --namespace ${BUDIBASE_NS} -f -
+  helm uninstall --namespace ${BUDIBASE_NS} budibase-redis &&\
+  helm uninstall --namespace ${BUDIBASE_NS} budibase-couchdb &&\
+  BUDIBASE_NS=${BUDIBASE_NS} \
+  MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
+  MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
+   envsubst < budibase-minio-tenant.yaml | \
+    kubectl delete \
+     --namespace ${BUDIBASE_NS} -f -
 
+$ # check that all resources are removed
 $ \
   kubectl --namespace ${BUDIBASE_NS} get all
 
