@@ -1,14 +1,4 @@
 resources:
- - couch-init-deployment.yaml
- - couchdb-service-deployment.yaml
- - couchdb-service-service.yaml
- - couchdb3-data-persistentvolumeclaim.yaml
- - minio-data-persistentvolumeclaim.yaml
- - minio-service-deployment.yaml
- - minio-service-service.yaml
- - redis-data-persistentvolumeclaim.yaml
- - redis-service-deployment.yaml
- - redis-service-service.yaml
  - budibase-app-claim0-persistentvolumeclaim.yaml
  - budibase-app-deployment.yaml
  - budibase-app-service.yaml
