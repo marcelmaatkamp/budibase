@@ -1,6 +1,6 @@
 {
   "name": "@budibase/builder",
-  "version": "0.9.51",
+  "version": "0.9.55",
   "license": "AGPL-3.0",
   "private": true,
   "scripts": {
@@ -16,7 +16,7 @@
     "cy:open": "cypress open",
     "cy:run:ci": "cypress run --record --key f308590b-6070-41af-b970-794a3823d451",
     "cy:test": "start-server-and-test cy:setup http://localhost:10001/builder cy:run",
-    "cy:ci": "start-server-and-test cy:setup http://localhost:10001/builder cy:run:ci",
+    "cy:ci": "start-server-and-test cy:setup http://localhost:10001/builder cy:run",
     "cy:debug": "start-server-and-test cy:setup http://localhost:10001/builder cy:open"
   },
   "jest": {
@@ -65,10 +65,10 @@
     }
   },
   "dependencies": {
-    "@budibase/bbui": "^0.9.51",
-    "@budibase/client": "^0.9.51",
+    "@budibase/bbui": "^0.9.55",
+    "@budibase/client": "^0.9.55",
     "@budibase/colorpicker": "1.1.2",
-    "@budibase/string-templates": "^0.9.51",
+    "@budibase/string-templates": "^0.9.55",
     "@sentry/browser": "5.19.1",
     "@spectrum-css/page": "^3.0.1",
     "@spectrum-css/vars": "^3.0.1",
@@ -78,7 +78,7 @@
     "posthog-js": "1.4.5",
     "remixicon": "2.5.0",
     "shortid": "2.2.15",
-    "svelte-dnd-action": "^0.8.9",
+    "svelte-dnd-action": "^0.9.8",
     "svelte-loading-spinners": "^0.1.1",
     "svelte-portal": "0.1.0",
     "uuid": "8.3.1",
