@@ -51,6 +51,100 @@ $ \
   alias helm=helm3 
 ```
 
+
+# k0s
+The simpeest way to install kubernetes is via https://k0sproject.io
+
+## install
+```
+$ \
+  curl -sSLf https://get.k0s.sh | sudo sh 
+```
+
+## start 'controller + worker' as system service
+```
+$\
+  sudo k0s install controller --single
+```
+
+## start k0s
+```
+$ \
+  sudo k0s start
+```
+
+## validate install
+```
+$ \
+  sudo k0s status
+
+Version: v1.21.2+k0s.0
+Process ID: 6512
+Parent Process ID: 1
+Role: controller+worker
+Init System: linux-systemd
+Service file: /etc/systemd/system/k0scontroller.service
+
+
+$ \
+  sudo k0s kubectl get all --all-namespaces
+
+NAMESPACE     NAME                                 READY   STATUS    RESTARTS   AGE
+kube-system   pod/kube-proxy-ckctf                 1/1     Running   0          7m41s
+kube-system   pod/kube-router-f86kd                1/1     Running   0          7m41s
+kube-system   pod/coredns-5ccbdcc4c4-gsdcj         1/1     Running   0          7m47s
+kube-system   pod/metrics-server-59d8698d9-vgbjl   1/1     Running   0          7m47s
+
+NAMESPACE     NAME                     TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                  AGE
+default       service/kubernetes       ClusterIP   10.96.0.1      <none>        443/TCP                  8m3s
+kube-system   service/kube-dns         ClusterIP   10.96.0.10     <none>        53/UDP,53/TCP,9153/TCP   7m47s
+kube-system   service/metrics-server   ClusterIP   10.111.232.1   <none>        443/TCP                  7m47s
+
+NAMESPACE     NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kube-system   daemonset.apps/kube-proxy    1         1         1       1            1           kubernetes.io/os=linux   7m47s
+kube-system   daemonset.apps/kube-router   1         1         1       1            1           <none>                   7m57s
+
+NAMESPACE     NAME                             READY   UP-TO-DATE   AVAILABLE   AGE
+kube-system   deployment.apps/coredns          1/1     1            1           7m47s
+kube-system   deployment.apps/metrics-server   1/1     1            1           7m47s
+
+NAMESPACE     NAME                                       DESIRED   CURRENT   READY   AGE
+kube-system   replicaset.apps/coredns-5ccbdcc4c4         1         1         1       7m47s
+kube-system   replicaset.apps/metrics-server-59d8698d9   1         1         1       7m47s
+```
+
+## set config
+```
+$ \
+  sudo chgrp $(id -g) /var/lib/k0s/pki/admin.conf &&\
+  export KUBECONFIG=/var/lib/k0s/pki/admin.conf &&\
+  alias k0s="sudo k0s" &&\
+  alias kubectl="k0s kubectl"
+```
+
+
+# set default storage class
+```
+$ \ 
+   kubectl  --namespace ${BUDIBASE_NS} apply -f pvc_standard.yam
+   kubectl  --namespace ${BUDIBASE_NS} patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' 
+```
+
+## install helm
+```
+$ \
+  curl https://baltocdn.com/helm/signing.asc | sudo apt-key add - &&\
+  sudo apt-get install apt-transport-https --yes &&\
+  echo "deb https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list &&\
+  sudo apt-get update &&\
+  sudo apt-get install helm
+
+$ \
+  sudo helm version
+
+version.BuildInfo{Version:"v3.6.1", GitCommit:"61d8e8c4a6f95540c15c6a65f36a6dd0a45e7a2f", GitTreeState:"clean", GoVersion:"go1.16.5"}
+```
+
 ## couchdb, redis and minio
 Now that kubernetes and tools are installed, we can install couchdb redis and minio
 ```
@@ -58,16 +152,22 @@ $ # -------------------------
 $ # set environment variables
 $ # -------------------------
 $ \
-  KUBECONFIG=${HOME}/.kube/config &&\
   BUDIBASE_NS=budibase &&\
-  source hosting.properties &&\
-  alias helm=helm3
+  source hosting.properties 
 
 $ # ----------------
 $ # create namespace
 $ # ----------------
 $ \
   kubectl create namespace ${BUDIBASE_NS}
+
+$ # -------------------------
+# # set default storage class
+$ # -------------------------
+
+$ \
+   kubectl  --namespace ${BUDIBASE_NS} apply -f pvc_standard.yaml &&\
+   kubectl  --namespace ${BUDIBASE_NS} patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
 $ # -------------
 $ # install redis
@@ -101,7 +201,19 @@ $ # ------------
 $ # install krew
 $ # ------------
 $ # install krew for kubectl
+
+$ # TODO TODO TODO: kubectl runs as root and paths of plugins shoud point to HOME of root!!
+% # this is a temp but funtional solution:
+
 $ \
+  sudo su -
+
+root $ \ 
+  BUDIBASE_NS=budibase &&\
+  source hosting.properties &&\
+  export KUBECONFIG=/var/lib/k0s/pki/admin.conf
+
+root $ \
   (
   set -x; cd "$(mktemp -d)" &&
   OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
@@ -110,15 +222,15 @@ $ \
   tar zxvf krew.tar.gz &&
   KREW=./krew-"${OS}_${ARCH}" &&
   "$KREW" install krew
- )
+ )"
 
-$ \
+root $ \
   export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
 $ # ----------------------
 $ # install minio-operator
 $ # ----------------------
-$ \
+root $ \
   kubectl krew install minio &&\
   kubectl minio init &&\
   kubectl minio tenant \
@@ -128,10 +240,29 @@ $ \
     --capacity 100M \
     --storage-class standard 
 
-$ # -------------
-$ # install minio
-$ # -------------
-$ \
+To open Operator UI, start a port forward using this command:
+
+kubectl minio proxy -n minio-operator 
+
+-----------------
+
+Tenant 'minio-tenant-1' created in 'minio-operator' Namespace
+
+  Username: admin 
+  Password: xxxxxxxxxxxxx
+  Note: Copy the credentials to a secure location. MinIO will not display these again.
+
++-------------+------------------------+----------------+--------------+--------------+
+| APPLICATION | SERVICE NAME           | NAMESPACE      | SERVICE TYPE | SERVICE PORT |
++-------------+------------------------+----------------+--------------+--------------+
+| MinIO       | minio                  | minio-operator | ClusterIP    | 443          |
+| Console     | minio-tenant-1-console | minio-operator | ClusterIP    | 9443         |
++-------------+------------------------+----------------+--------------+--------------+
+
+root $ # -------------
+root $ # install minio
+root $ # -------------
+root $ \
   BUDIBASE_NS=${BUDIBASE_NS} \
   MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
   MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
@@ -140,6 +271,9 @@ $ \
      --namespace ${BUDIBASE_NS} -f -
 
 $ # to check minio, use `kubectl minio proxy -n minio-operator`
+
+$ \
+  exit
 ```
 
 ## budibase 
