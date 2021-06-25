@@ -145,6 +145,12 @@ nodes:
   - containerPort: 443
     hostPort: 443
     protocol: TCP
+  - containerPort: 30100
+    hostPort: 30100
+  - containerPort: 30101
+    hostPort: 30101
+  - containerPort: 30102
+    hostPort: 30102
 - role: worker
 - role: worker
 - role: worker
@@ -180,6 +186,73 @@ spec:
     nodePort: 30101       # <-- 3. add this nodePort binding to another one of the node ports exposed
     name: admin
 EOF
+```
+
+# web
+```
+$ \
+  kubectl create deployment web --image=nginx &&\
+  kubectl expose deployment web --port=80 &&\
+  kubectl apply -f - <<EOF
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-test
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    - host: www.example.com
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: web
+              servicePort: 80
+EOF
+```
+
+## test
+```
+$ curl -s -H "Host: www.example.com" http://localhost:30100 | grep title
+<title>Welcome to nginx!</title>
+```
+
+## loadbalancer
+```
+$ \
+  DOCKER_KIND_SUBNET=$(docker network inspect kind -f "{{(index .IPAM.Config 0).Subnet}}" | cut -d '.' -f1,2) &&\
+  kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/namespace.yaml &&\
+  cm=$(kubectl apply -f - <<EOF
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - $DOCKER_KIND_SUBNET.255.1-$DOCKER_KIND_SUBNET.255.250
+EOF
+  ) &&\
+  kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/metallb.yaml &&\
+  kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
+```
+
+To test it:
+```
+$ \
+  kubectl create deployment nginx --image=nginx &&\
+  kubectl expose deployment nginx --name=nginx --port=80 --target-port=80 --type=LoadBalancer &&\
+  LB_IP=$( kubectl get svc nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}' ) &&\
+  curl -s $LB_IP | grep title
+
+<title>Welcome to nginx!</title>
 ```
 
 ### nginx
