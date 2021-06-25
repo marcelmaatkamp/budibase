@@ -113,6 +113,84 @@ kube-system   replicaset.apps/coredns-5ccbdcc4c4         1         1         1  
 kube-system   replicaset.apps/metrics-server-59d8698d9   1         1         1       7m47s
 ```
 
+# kind (mini-kubernetes)
+
+## install
+```
+$ \
+  curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.11.1/kind-linux-amd64 &&\
+  chmod +x ./kind &&\
+  sudo mv ./kind /usr/local/bin/kind
+```
+
+## prepare cluster
+```
+$ \
+  cat <<EOF | kind create cluster --config=-
+---
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 443
+    protocol: TCP
+- role: worker
+- role: worker
+- role: worker
+
+EOF
+```
+
+## ingres
+
+### traefik
+```
+$ \
+  kubectl apply -f https://raw.githubusercontent.com/containous/traefik/v1.7/examples/k8s/traefik-rbac.yaml &&\
+  kubectl apply -f https://raw.githubusercontent.com/containous/traefik/v1.7/examples/k8s/traefik-ds.yaml &&\
+  kubectl apply -n kube-system -f - <<EOF
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: traefik-ingress-service
+  namespace: kube-system
+spec:
+  type: NodePort          # <-- 1. change the default ClusterIp to NodePort
+  selector:
+    k8s-app: traefik-ingress-lb
+  ports:
+  - protocol: TCP
+    port: 80
+    nodePort: 30100       # <-- 2. add this nodePort binding to one of the node ports exposed
+    name: web
+  - protocol: TCP
+    port: 8080
+    nodePort: 30101       # <-- 3. add this nodePort binding to another one of the node ports exposed
+    name: admin
+EOF
+```
+
+### nginx
+```
+$ \
+  kubectl apply \
+   -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/kind/deploy.yaml
+```
+
+# budibase
+
 ## set config
 ```
 $ \
