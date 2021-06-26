@@ -154,7 +154,6 @@ nodes:
 - role: worker
 - role: worker
 - role: worker
-
 EOF
 ```
 
@@ -163,32 +162,83 @@ EOF
 ### traefik
 ```
 $ \
-  kubectl apply -f https://raw.githubusercontent.com/containous/traefik/v1.7/examples/k8s/traefik-rbac.yaml &&\
-  kubectl apply -f https://raw.githubusercontent.com/containous/traefik/v1.7/examples/k8s/traefik-ds.yaml &&\
-  kubectl apply -n kube-system -f - <<EOF
+  kubectl create namespace traefik &&\
+  kubectl apply -f - <<EOF
 ---
-kind: Service
 apiVersion: v1
+kind: Secret
 metadata:
-  name: traefik-ingress-service
-  namespace: kube-system
-spec:
-  type: NodePort          # <-- 1. change the default ClusterIp to NodePort
-  selector:
-    k8s-app: traefik-ingress-lb
-  ports:
-  - protocol: TCP
-    port: 80
-    nodePort: 30100       # <-- 2. add this nodePort binding to one of the node ports exposed
-    name: web
-  - protocol: TCP
-    port: 8080
-    nodePort: 30101       # <-- 3. add this nodePort binding to another one of the node ports exposed
-    name: admin
+  name: cloudflare-api-credentials
+  namespace: traefik
+type: Opaque
+stringData:
+  email: your@cloudflare.email
+  apiKey: YOURCLOUDFLAREAPIKEY
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-config
+  namespace: traefik
+data:
+  traefik-config.yaml: |
+    http:
+      middlewares:
+        headers-default:
+          headers:
+            sslRedirect: true
+            browserXssFilter: true
+            contentTypeNosniff: true
+            forceSTSHeader: true
+            stsIncludeSubdomains: true
+            stsPreload: true
+            stsSeconds: 15552000
+            customFrameOptionsValue: SAMEORIGIN
 EOF
+&&\
+  cat <<EOF > traefik-chart-values.yaml
+# additionalArguments:
+#   - --providers.file.filename=/data/traefik-config.yaml
+#   - --entrypoints.websecure.http.tls.certresolver=cloudflare
+#   - --entrypoints.websecure.http.tls.domains[0].main=example.com
+#   - --entrypoints.websecure.http.tls.domains[0].sans=*.example.com
+#   - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
+#   - --certificatesresolvers.cloudflare.acme.email=mail@example.com
+#   - --certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=1.1.1.1
+#   - --certificatesresolvers.cloudflare.acme.storage=/certs/acme.json
+ports:
+  web:
+    redirectTo: websecure
+# env:
+#   - name: CF_API_EMAIL
+#     valueFrom:
+#       secretKeyRef:
+#         key: email
+#         name: cloudflare-api-credentials
+#   - name: CF_API_KEY
+#     valueFrom:
+#       secretKeyRef:
+#         key: apiKey
+#         name: cloudflare-api-credentials
+ingressRoute:
+  dashboard:
+    enabled: false
+persistence:
+  enabled: true
+  path: /certs
+  size: 128Mi
+volumes:
+  - mountPath: /data
+    name: traefik-config
+    type: configMap
+EOF
+
+  helm repo add traefik https://helm.traefik.io/traefik &&\
+  helm repo update &&\
+  helm install traefik traefik/traefik --namespace=traefik --values=traefik-chart-values.yaml
 ```
 
-# web
+# test - web
 ```
 $ \
   kubectl create deployment web --image=nginx &&\
@@ -207,15 +257,16 @@ spec:
       http:
         paths:
           - path: /
+            pathType: Prefix
             backend:
-              serviceName: web
-              servicePort: 80
+              service:
+                name: web
+                port:
+                  number: 80
 EOF
-```
+&&\
+  curl -s -H "Host: www.example.com" http://localhost:30100 | grep title
 
-## test
-```
-$ curl -s -H "Host: www.example.com" http://localhost:30100 | grep title
 <title>Welcome to nginx!</title>
 ```
 
@@ -253,6 +304,89 @@ $ \
   curl -s $LB_IP | grep title
 
 <title>Welcome to nginx!</title>
+```
+
+### dashboard
+```
+& \
+  username=admin &&\
+  password=password &&\
+  decoded_username_passwd=$(docker run --rm marcnuri/htpasswd -nb ${username} ${password} | openssl base64) &&\
+  kubectl apply -f - <<EOF
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-dashboard-auth
+  namespace: traefik
+data:
+  users: |2
+    ${decoded_username_passwd}
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-dashboard-basicauth
+  namespace: traefik
+spec:
+  basicAuth:
+    secret: traefik-dashboard-auth
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host("traefik.example.com")
+      kind: Rule
+      middlewares:
+        - name: traefik-dashboard-basicauth
+          namespace: traefik
+      services:
+        - name: api@internal
+          kind: TraefikService
+EOF
+  kubectl apply -f - <<EOF
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-web-ui
+spec:
+  selector:
+    k8s-app: traefik-ingress-lb
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-web-ui
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+   - host: traefik.example.com
+     http:
+      paths:
+       - path: /
+         pathType: Prefix
+         backend:
+          service:
+           name: traefik-web-ui
+           port:
+            number: 80
+EOF
+
+$ \
+  curl -kH "Host: traefik.example.com" https://172.18.255.1
+
+401 Unauthorized
 ```
 
 ### nginx
