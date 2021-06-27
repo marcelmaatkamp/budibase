@@ -211,7 +211,10 @@ spec:
            port:
             number: 80
 EOF
+```
 
+### install webserver
+```
   kubectl create deployment web --image=nginx &&\
   kubectl expose deployment web --port=80 &&\
   kubectl apply -f - <<EOF
@@ -246,39 +249,8 @@ curl -k -H "Host: traefik.example.com" https://${LB}
 
 # budibase
 
-## set config
-```
-$ \
-  sudo chgrp $(id -g) /var/lib/k0s/pki/admin.conf &&\
-  export KUBECONFIG=/var/lib/k0s/pki/admin.conf &&\
-  alias k0s="sudo k0s" &&\
-  alias kubectl="k0s kubectl"
-```
+## install couchdb, redis and minio
 
-
-# set default storage class
-```
-$ \ 
-   kubectl  --namespace ${BUDIBASE_NS} apply -f pvc_standard.yam
-   kubectl  --namespace ${BUDIBASE_NS} patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' 
-```
-
-## install helm
-```
-$ \
-  curl https://baltocdn.com/helm/signing.asc | sudo apt-key add - &&\
-  sudo apt-get install apt-transport-https --yes &&\
-  echo "deb https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list &&\
-  sudo apt-get update &&\
-  sudo apt-get install helm
-
-$ \
-  sudo helm version
-
-version.BuildInfo{Version:"v3.6.1", GitCommit:"61d8e8c4a6f95540c15c6a65f36a6dd0a45e7a2f", GitTreeState:"clean", GoVersion:"go1.16.5"}
-```
-
-## couchdb, redis and minio
 Now that kubernetes and tools are installed, we can install couchdb redis and minio
 ```
 $ # -------------------------
