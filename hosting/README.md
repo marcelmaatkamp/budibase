@@ -9,113 +9,9 @@ $ docker-compose up -d
 ## kubernetes
 If you want to use Kubernetes use the following commands:
 
-### Ubuntu
-Installing kubernetes in Ubuntu is simple, use the following commands to install Kubernetes on a local machine:
-```
-$ \
-  curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 &&\
-  sudo install minikube-linux-amd64 /usr/local/bin/minikube 
+### kind (mini-kubernetes)
 
-$ # minikube via docker
-$ # -------------------
-$ \
-  minikube start 
-
-$ # or (prefered way)
-
-$ # minikube bare metal
-$ # -------------------
-$ \
-  sudo -i env \
-   CHANGE_MINIKUBE_NONE_USER=true \
-   MINIKUBE_HOME=$HOME \
-   KUBECONFIG=$HOME/.kube/config \
-   MINIKUBE_NODE_IP=192.168.1.57 \
-   /usr/local/bin/minikube \
-    --extra-config kubelet.node-ip=${MINIKUBE_NODE_IP} \
-    start --driver=none
-
-$ # verify ip is host ip
-$ \
-  minikube ip
-
-$ \
-  sudo apt-get update &&\
-  sudo apt-get install \
-   kubectl &&\
-  export KUBECONFIG=${HOME}/.kube/config
-
-$ # disable sandbox (--devmode) so helm can access ${KUBECONFIG}
-$ \
-  sudo snap install helm3 --devmode &&\
-  alias helm=helm3 
-```
-
-
-# k0s
-The simpeest way to install kubernetes is via https://k0sproject.io
-
-## install
-```
-$ \
-  curl -sSLf https://get.k0s.sh | sudo sh 
-```
-
-## start 'controller + worker' as system service
-```
-$\
-  sudo k0s install controller --single
-```
-
-## start k0s
-```
-$ \
-  sudo k0s start
-```
-
-## validate install
-```
-$ \
-  sudo k0s status
-
-Version: v1.21.2+k0s.0
-Process ID: 6512
-Parent Process ID: 1
-Role: controller+worker
-Init System: linux-systemd
-Service file: /etc/systemd/system/k0scontroller.service
-
-
-$ \
-  sudo k0s kubectl get all --all-namespaces
-
-NAMESPACE     NAME                                 READY   STATUS    RESTARTS   AGE
-kube-system   pod/kube-proxy-ckctf                 1/1     Running   0          7m41s
-kube-system   pod/kube-router-f86kd                1/1     Running   0          7m41s
-kube-system   pod/coredns-5ccbdcc4c4-gsdcj         1/1     Running   0          7m47s
-kube-system   pod/metrics-server-59d8698d9-vgbjl   1/1     Running   0          7m47s
-
-NAMESPACE     NAME                     TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                  AGE
-default       service/kubernetes       ClusterIP   10.96.0.1      <none>        443/TCP                  8m3s
-kube-system   service/kube-dns         ClusterIP   10.96.0.10     <none>        53/UDP,53/TCP,9153/TCP   7m47s
-kube-system   service/metrics-server   ClusterIP   10.111.232.1   <none>        443/TCP                  7m47s
-
-NAMESPACE     NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
-kube-system   daemonset.apps/kube-proxy    1         1         1       1            1           kubernetes.io/os=linux   7m47s
-kube-system   daemonset.apps/kube-router   1         1         1       1            1           <none>                   7m57s
-
-NAMESPACE     NAME                             READY   UP-TO-DATE   AVAILABLE   AGE
-kube-system   deployment.apps/coredns          1/1     1            1           7m47s
-kube-system   deployment.apps/metrics-server   1/1     1            1           7m47s
-
-NAMESPACE     NAME                                       DESIRED   CURRENT   READY   AGE
-kube-system   replicaset.apps/coredns-5ccbdcc4c4         1         1         1       7m47s
-kube-system   replicaset.apps/metrics-server-59d8698d9   1         1         1       7m47s
-```
-
-# kind (mini-kubernetes)
-
-## install
+#### install
 ```
 $ \
   curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.11.1/kind-linux-amd64 &&\
@@ -123,7 +19,9 @@ $ \
   sudo mv ./kind /usr/local/bin/kind
 ```
 
-## prepare cluster
+#### prepare cluster
+1 control plane plus 3 workers
+
 ```
 $ \
   cat <<EOF | kind create cluster --config=-
@@ -157,23 +55,11 @@ nodes:
 EOF
 ```
 
-## ingres
-
-### traefik
+### install traefik
 ```
 $ \
   kubectl create namespace traefik &&\
   kubectl apply -f - <<EOF
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: cloudflare-api-credentials
-  namespace: traefik
-type: Opaque
-stringData:
-  email: your@cloudflare.email
-  apiKey: YOURCLOUDFLAREAPIKEY
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -195,31 +81,14 @@ data:
             stsSeconds: 15552000
             customFrameOptionsValue: SAMEORIGIN
 EOF
-&&\
   cat <<EOF > traefik-chart-values.yaml
-# additionalArguments:
-#   - --providers.file.filename=/data/traefik-config.yaml
-#   - --entrypoints.websecure.http.tls.certresolver=cloudflare
-#   - --entrypoints.websecure.http.tls.domains[0].main=example.com
-#   - --entrypoints.websecure.http.tls.domains[0].sans=*.example.com
-#   - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
-#   - --certificatesresolvers.cloudflare.acme.email=mail@example.com
-#   - --certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=1.1.1.1
-#   - --certificatesresolvers.cloudflare.acme.storage=/certs/acme.json
+additionalArguments:
+  - --providers.file.filename=/data/traefik-config.yaml
+  - --entrypoints.websecure.http.tls.domains[0].main=example.com
+  - --entrypoints.websecure.http.tls.domains[0].sans=*.example.com
 ports:
   web:
     redirectTo: websecure
-# env:
-#   - name: CF_API_EMAIL
-#     valueFrom:
-#       secretKeyRef:
-#         key: email
-#         name: cloudflare-api-credentials
-#   - name: CF_API_KEY
-#     valueFrom:
-#       secretKeyRef:
-#         key: apiKey
-#         name: cloudflare-api-credentials
 ingressRoute:
   dashboard:
     enabled: false
@@ -238,39 +107,10 @@ EOF
   helm install traefik traefik/traefik --namespace=traefik --values=traefik-chart-values.yaml
 ```
 
-# test - web
-```
-$ \
-  kubectl create deployment web --image=nginx &&\
-  kubectl expose deployment web --port=80 &&\
-  kubectl apply -f - <<EOF
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ingress-test
-  annotations:
-    kubernetes.io/ingress.class: traefik
-spec:
-  rules:
-    - host: www.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: web
-                port:
-                  number: 80
-EOF
-&&\
-  curl -s -H "Host: www.example.com" http://localhost:30100 | grep title
+### install loadbalancer
+MetalLB is a load-balancer implementation for bare metal Kubernetes clusters, using standard routing protocols.
+See https://metallb.universe.tf
 
-<title>Welcome to nginx!</title>
-```
-
-## loadbalancer
 ```
 $ \
   DOCKER_KIND_SUBNET=$(docker network inspect kind -f "{{(index .IPAM.Config 0).Subnet}}" | cut -d '.' -f1,2) &&\
@@ -295,20 +135,9 @@ EOF
   kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
 ```
 
-To test it:
+### install traefik dashboard
 ```
 $ \
-  kubectl create deployment nginx --image=nginx &&\
-  kubectl expose deployment nginx --name=nginx --port=80 --target-port=80 --type=LoadBalancer &&\
-  LB_IP=$( kubectl get svc nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}' ) &&\
-  curl -s $LB_IP | grep title
-
-<title>Welcome to nginx!</title>
-```
-
-### dashboard
-```
-& \
   username=admin &&\
   password=password &&\
   decoded_username_passwd=$(docker run --rm marcnuri/htpasswd -nb ${username} ${password} | openssl base64) &&\
@@ -383,17 +212,36 @@ spec:
             number: 80
 EOF
 
-$ \
-  curl -kH "Host: traefik.example.com" https://172.18.255.1
-
-401 Unauthorized
+  kubectl create deployment web --image=nginx &&\
+  kubectl expose deployment web --port=80 &&\
+  kubectl apply -f - <<EOF
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-test
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    - host: www.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+EOF
 ```
 
-### nginx
+### test configuration
 ```
-$ \
-  kubectl apply \
-   -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/static/provider/kind/deploy.yaml
+LB=$(kubectl get svc -n traefik traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' )
+curl -k -H "Host: www.example.com" https://${LB}
+curl -k -H "Host: traefik.example.com" https://${LB}
 ```
 
 # budibase
