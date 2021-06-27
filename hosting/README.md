@@ -299,18 +299,7 @@ $ # install krew
 $ # ------------
 $ # install krew for kubectl
 
-$ # TODO TODO TODO: kubectl runs as root and paths of plugins shoud point to HOME of root!!
-% # this is a temp but funtional solution:
-
 $ \
-  sudo su -
-
-root $ \ 
-  BUDIBASE_NS=budibase &&\
-  source hosting.properties &&\
-  export KUBECONFIG=/var/lib/k0s/pki/admin.conf
-
-root $ \
   (
   set -x; cd "$(mktemp -d)" &&
   OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
@@ -319,15 +308,15 @@ root $ \
   tar zxvf krew.tar.gz &&
   KREW=./krew-"${OS}_${ARCH}" &&
   "$KREW" install krew
- )"
+ )
 
-root $ \
+$ \
   export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
 $ # ----------------------
 $ # install minio-operator
 $ # ----------------------
-root $ \
+$ \
   kubectl krew install minio &&\
   kubectl minio init &&\
   kubectl minio tenant \
@@ -356,10 +345,10 @@ Tenant 'minio-tenant-1' created in 'minio-operator' Namespace
 | Console     | minio-tenant-1-console | minio-operator | ClusterIP    | 9443         |
 +-------------+------------------------+----------------+--------------+--------------+
 
-root $ # -------------
-root $ # install minio
-root $ # -------------
-root $ \
+$ # -------------
+$ # install minio
+$ # -------------
+$ \
   BUDIBASE_NS=${BUDIBASE_NS} \
   MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
   MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
@@ -368,9 +357,6 @@ root $ \
      --namespace ${BUDIBASE_NS} -f -
 
 $ # to check minio, use `kubectl minio proxy -n minio-operator`
-
-$ \
-  exit
 ```
 
 ## budibase 
