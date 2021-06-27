@@ -266,14 +266,6 @@ $ # ----------------
 $ \
   kubectl create namespace ${BUDIBASE_NS}
 
-$ # -------------------------
-# # set default storage class
-$ # -------------------------
-
-$ \
-   kubectl  --namespace ${BUDIBASE_NS} apply -f pvc_standard.yaml &&\
-   kubectl  --namespace ${BUDIBASE_NS} patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-
 $ # -------------
 $ # install redis
 $ # -------------
