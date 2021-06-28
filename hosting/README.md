@@ -404,78 +404,12 @@ if everything went alright, the folling output should be visible
 ```
 $ \
   kubectl --namespace ${BUDIBASE_NS} get all
-
-NAME                                   READY   STATUS              RESTARTS   AGE
-pod/budibase-app-7c68f49d88-8qgdm      0/1     ContainerCreating   0          10s
-pod/budibase-couchdb-0                 1/1     Running             0          2m33s
-pod/budibase-couchdb-1                 1/1     Running             0          2m33s
-pod/budibase-couchdb-2                 1/1     Running             0          2m33s
-pod/budibase-minio-ss-0-0              0/1     ContainerCreating   0          4s
-pod/budibase-minio-ss-0-1              0/1     ContainerCreating   0          4s
-pod/budibase-minio-ss-0-2              0/1     ContainerCreating   0          4s
-pod/budibase-minio-ss-0-3              0/1     ContainerCreating   0          4s
-pod/budibase-redis-master-0            1/1     Running             0          2m45s
-pod/budibase-redis-replicas-0          1/1     Running             1          2m45s
-pod/budibase-redis-replicas-1          1/1     Running             0          2m
-pod/budibase-redis-replicas-2          1/1     Running             0          109s
-pod/budibase-worker-7f4cf479bc-jvd6w   0/1     ContainerCreating   0          10s
-
-NAME                              TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
-service/budibase-app              ClusterIP   10.104.34.37     <none>        4002/TCP   10s
-service/budibase-couchdb          ClusterIP   None             <none>        5984/TCP   2m33s
-service/budibase-minio-hl         ClusterIP   None             <none>        9000/TCP   14s
-service/budibase-redis-headless   ClusterIP   None             <none>        6379/TCP   2m45s
-service/budibase-redis-master     ClusterIP   10.96.166.143    <none>        6379/TCP   2m45s
-service/budibase-redis-replicas   ClusterIP   10.99.168.58     <none>        6379/TCP   2m45s
-service/budibase-svc-couchdb      ClusterIP   10.110.116.155   <none>        5984/TCP   2m33s
-service/budibase-worker           ClusterIP   10.110.115.250   <none>        4003/TCP   10s
-service/minio                     ClusterIP   10.106.6.140     <none>        80/TCP     14s
-
-NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/budibase-app      0/1     1            0           10s
-deployment.apps/budibase-worker   0/1     1            0           10s
-
-NAME                                         DESIRED   CURRENT   READY   AGE
-replicaset.apps/budibase-app-7c68f49d88      1         1         0       10s
-replicaset.apps/budibase-worker-7f4cf479bc   1         1         0       10s
-
-NAME                                       READY   AGE
-statefulset.apps/budibase-couchdb          3/3     2m33s
-statefulset.apps/budibase-minio-ss-0       0/4     4s
-statefulset.apps/budibase-redis-master     1/1     2m45s
-statefulset.apps/budibase-redis-replicas   3/3     2m45s
 ```
 
 ## external access
 
 When you want to make a new site you have to go to `/builder/` which has to map to the `budibase-app`-service container in kubernetes. When finised building your site, Budibase installs the finished web-app in the `minio`-service in kubernetes in its own bucket and that bucket has to map to the root ('/') of your site.
 All those mappings have to be specified in kubernetes in the ingres-controller with annotations.
-
-```
-$ \
-# minikube addons enable ingress
-
-$ # ---------------
-$ # install traefik
-$ # ---------------
-$ \
-  helm repo add traefik https://helm.traefik.io/traefik &&\
-  helm repo update &&\
-  helm install \
-   --namespace ${BUDIBASE_NS} \
-    traefik traefik/traefik
-
-$ # dashboard
-$ # ---------
-$ \
-  kubectl \
-   --namespace ${BUDIBASE_NS} \
-    port-forward \
-     $(kubectl --namespace ${BUDIBASE_NS} get pods --selector "app.kubernetes.io/name=traefik" --output=name) \
-      --address 0.0.0.0 \
-       9000:9000
-```
-(TBD: use nginx, traefik or kong, or maybe all of them)
 
 The mappings are: 
 ```
