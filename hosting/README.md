@@ -247,6 +247,15 @@ curl -k -H "Host: www.example.com" https://${LB}
 curl -k -H "Host: traefik.example.com" https://${LB}
 ```
 
+or 
+```
+kind (192.168.1.1) $ \
+  kubectl port-forward --address 0.0.0.0 -n traefik service/traefik 8443:443
+
+other (192.168.1.2) $ \
+  curl -k -H 'Host: www.example.com' 192.168.1.1
+```
+
 # budibase
 
 ## install couchdb, redis and minio
@@ -358,6 +367,24 @@ $ \
 
 $ # to check minio, use `kubectl minio proxy -n minio-operator`
 ```
+
+## hosts
+```
+$ \
+  kubectl port-forward --address 0.0.0.0 -n traefik service/traefik 8443:443
+```
+
+/etc/hosts
+```
+<ip_of_kind_host>  www.example.com traefik.example.com couchdb.example.com minio.example.com budibase.example.com
+```
+
+| name | url |
+| --- | --- |
+| test webserver | https://www.example.com |
+| traefik dashboard | https://traefik.example.com |
+| couchdb web gui | https://couchdb.example.com/_utils |
+| minio | https://minio.example.com/_utils |
 
 ## budibase 
 With couchdb, redis and minio installed succesfully, we can now install budibase
