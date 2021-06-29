@@ -1,6 +1,10 @@
 #!/bin/bash
 
-  cat <<EOF | kind create cluster --config=-
+# --------------
+# create cluster
+# --------------
+
+cat <<EOF | kind create cluster --config=-
 ---
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -30,18 +34,42 @@ nodes:
 - role: worker
 EOF
 
-  kubectl create namespace traefik &&\
-  kubectl apply -f - <<EOF
+# ----------------
+# create namespace
+# ----------------
+
+kubectl create namespace traefik
+
+# --------------
+# create metallb
+# --------------
+
+DOCKER_KIND_SUBNET=$(docker network inspect kind -f "{{(index .IPAM.Config 0).Subnet}}" | cut -d '.' -f1,2) &&\
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/namespace.yaml &&\
+cm=$(kubectl apply -f - <<EOF
 ---
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
-  name: cloudflare-api-credentials
-  namespace: traefik
-type: Opaque
-stringData:
-  email: your@cloudflare.email
-  apiKey: YOURCLOUDFLAREAPIKEY
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - $DOCKER_KIND_SUBNET.255.1-$DOCKER_KIND_SUBNET.255.250
+EOF
+  ) &&\
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/metallb.yaml &&\
+kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"  
+
+# --------------
+# create traefik
+# --------------
+
+  kubectl apply -f - <<EOF
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -63,30 +91,16 @@ data:
             stsSeconds: 15552000
             customFrameOptionsValue: SAMEORIGIN
 EOF
+
   cat <<EOF > traefik-chart-values.yaml
 additionalArguments:
   - --providers.file.filename=/data/traefik-config.yaml
   - --entrypoints.websecure.http.tls.certresolver=cloudflare
   - --entrypoints.websecure.http.tls.domains[0].main=example.com
   - --entrypoints.websecure.http.tls.domains[0].sans=*.example.com
-#   - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
-#   - --certificatesresolvers.cloudflare.acme.email=mail@example.com
-#   - --certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=1.1.1.1
-#   - --certificatesresolvers.cloudflare.acme.storage=/certs/acme.json
 ports:
   web:
     redirectTo: websecure
-# env:
-#   - name: CF_API_EMAIL
-#     valueFrom:
-#       secretKeyRef:
-#         key: email
-#         name: cloudflare-api-credentials
-#   - name: CF_API_KEY
-#     valueFrom:
-#       secretKeyRef:
-#         key: apiKey
-#         name: cloudflare-api-credentials
 ingressRoute:
   dashboard:
     enabled: false
@@ -104,31 +118,14 @@ EOF
   helm repo update &&\
   helm install traefik traefik/traefik --namespace=traefik --values=traefik-chart-values.yaml
 
-  DOCKER_KIND_SUBNET=$(docker network inspect kind -f "{{(index .IPAM.Config 0).Subnet}}" | cut -d '.' -f1,2) &&\
-  kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/namespace.yaml &&\
-  cm=$(kubectl apply -f - <<EOF
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  namespace: metallb-system
-  name: config
-data:
-  config: |
-    address-pools:
-    - name: default
-      protocol: layer2
-      addresses:
-      - $DOCKER_KIND_SUBNET.255.1-$DOCKER_KIND_SUBNET.255.250
-EOF
-  ) &&\
-  kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.10.2/manifests/metallb.yaml &&\
-  kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
+# ------------------------
+# create traefik dashboard
+# ------------------------
 
-  username=admin &&\
-  password=password &&\
-  decoded_username_passwd=$(docker run --rm marcnuri/htpasswd -nb ${username} ${password} | openssl base64) &&\
-  kubectl apply -f - <<EOF
+username=admin &&\
+password=password &&\
+decoded_username_passwd=$(docker run --rm marcnuri/htpasswd -nb ${username} ${password} | openssl base64) &&\
+kubectl apply -f - <<EOF
 ---
 apiVersion: v1
 kind: Secret
@@ -199,9 +196,13 @@ spec:
             number: 80
 EOF
 
-  kubectl create deployment web --image=nginx &&\
-  kubectl expose deployment web --port=80 &&\
-  kubectl apply -f - <<EOF
+# -----------------------
+# create static webserver
+# -----------------------
+
+kubectl create deployment web --image=nginx &&\
+kubectl expose deployment web --port=80 &&\
+kubectl apply -f - <<EOF
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -211,7 +212,7 @@ metadata:
     kubernetes.io/ingress.class: traefik
 spec:
   rules:
-    - host: www.example.com
+    - host: static.example.com
       http:
         paths:
           - path: /
@@ -223,6 +224,162 @@ spec:
                   number: 80
 EOF
 
-LB=$(kubectl get svc -n traefik traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' )
-curl -k -H "Host: www.example.com" https://${LB}
-curl -k -H "Host: traefik.example.com" https://${LB}
+# LB=$(kubectl get svc -n traefik traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' )
+# curl -k -H "Host: www.example.com" https://${LB}
+# curl -k -H "Host: traefik.example.com" https://${LB}
+
+# -------------------------
+# set environment variables
+# -------------------------
+
+BUDIBASE_NS=budibase &&\
+source hosting.properties
+
+# ----------------
+# create namespace
+# ----------------
+
+kubectl create namespace ${BUDIBASE_NS}
+
+# -------------
+# install redis
+# -------------
+# installation values for redis can be found at
+#  - https://github.com/bitnami/charts/blob/master/bitnami/redis/values.yaml
+
+helm repo add bitnami https://charts.bitnami.com/bitnami &&\
+helm repo update &&\
+helm install \
+ --namespace ${BUDIBASE_NS} \
+ --set auth.password=${REDIS_PASSWORD} \
+  budibase-redis bitnami/redis
+
+# ---------------
+# install couchdb
+# ---------------
+# installation values for couchdb can be found at
+#  - https://apache.googlesource.com/couchdb-helm/+/refs/heads/main/couchdb/values.yaml
+
+helm repo add couchdb https://apache.github.io/couchdb-helm &&\
+helm repo update &&\
+helm install \
+ --namespace ${BUDIBASE_NS} \
+ --set couchdbConfig.couchdb.uuid=$(curl https://www.uuidgenerator.net/api/version4 2>/dev/null | tr -d -) \
+ --set adminUsername=${COUCH_DB_USER} \
+ --set adminPassword=${COUCH_DB_PASSWORD} \
+  budibase couchdb/couchdb
+
+# ------------
+# install krew
+# ------------
+# install krew for kubectl
+
+(
+ set -x; cd "$(mktemp -d)" &&
+ OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+ ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+ curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/krew.tar.gz" &&
+ tar zxvf krew.tar.gz &&
+ KREW=./krew-"${OS}_${ARCH}" &&
+ "$KREW" install krew
+)
+
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+
+# ----------------------
+# install minio-operator
+# ----------------------
+kubectl krew install minio &&\
+kubectl minio init &&\
+kubectl minio tenant \
+ create minio-tenant-1 \
+  --servers 4 \
+  --volumes 4 \
+  --capacity 100M \
+  --storage-class standard
+
+# -------------
+# install minio
+# -------------
+
+BUDIBASE_NS=${BUDIBASE_NS} \
+MINIO_ACCESS_KEY=$(echo -n ${MINIO_ACCESS_KEY} | base64) \
+MINIO_SECRET_KEY=$(echo -n ${MINIO_SECRET_KEY} | base64) \
+ envsubst < budibase-minio-tenant.yaml | \
+  kubectl apply \
+   --namespace ${BUDIBASE_NS} -f -
+
+# ----------------
+# install budibase
+# ----------------
+
+kubectl kustomize kubernetes | \
+ kubectl \
+  --namespace ${BUDIBASE_NS} \
+   apply -f -
+
+# ---------------------
+# create traefik routes
+# ---------------------
+
+kubectl apply -n budibase  -f - <<EOF
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: couchdb
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    - host: couchdb.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: budibase-couchdb
+                port:
+                  number: 5984
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    - host: minio.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: budibase-minio-hl
+                port:
+                  number: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: budibase
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    - host: www.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: service/budibase-app
+                port:
+                  number: 4002
+
+EOF
+
