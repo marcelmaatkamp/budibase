@@ -1,5 +1,6 @@
-import { writable } from "svelte/store"
-import api from "builderStore/api"
+import { writable, get } from "svelte/store"
+import { API } from "api"
+import { auth } from "stores/portal"
 
 const OIDC_CONFIG = {
   logo: undefined,
@@ -10,23 +11,20 @@ const OIDC_CONFIG = {
 export function createOidcStore() {
   const store = writable(OIDC_CONFIG)
   const { set, subscribe } = store
-
-  async function init() {
-    const res = await api.get(`/api/admin/configs/publicOidc`)
-    const json = await res.json()
-
-    if (json.status === 400) {
-      set(OIDC_CONFIG)
-    } else {
-      // Just use the first config for now. We will be support multiple logins buttons later on.
-      set(...json)
-    }
-  }
-
   return {
     subscribe,
     set,
-    init,
+    init: async () => {
+      const tenantId = get(auth).tenantId
+      const config = await API.getOIDCConfig(tenantId)
+      if (Object.keys(config || {}).length) {
+        // Just use the first config for now.
+        // We will be support multiple logins buttons later on.
+        set(...config)
+      } else {
+        set(OIDC_CONFIG)
+      }
+    },
   }
 }
 

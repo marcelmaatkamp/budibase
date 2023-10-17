@@ -1,23 +1,19 @@
 <script>
-  import { onMount } from "svelte"
   import { Router } from "@roxi/routify"
   import { routes } from "../.routify/routes"
-  import { initialise } from "builderStore"
-  import { NotificationDisplay } from "@budibase/bbui"
+  import { NotificationDisplay, BannerDisplay } from "@budibase/bbui"
   import { parse, stringify } from "qs"
-  import HelpIcon from "components/common/HelpIcon.svelte"
-
-  onMount(async () => {
-    await initialise()
-  })
+  import LicensingOverlays from "components/portal/licensing/LicensingOverlays.svelte"
 
   const queryHandler = { parse, stringify }
 </script>
 
+<div class="banner-container" />
+<BannerDisplay />
 <NotificationDisplay />
+<LicensingOverlays />
 <Router {routes} config={{ queryHandler }} />
 <div class="modal-container" />
-<HelpIcon />
 
 <style>
   .modal-container {

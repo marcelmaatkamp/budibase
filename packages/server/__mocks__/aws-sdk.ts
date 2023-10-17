@@ -1,7 +1,7 @@
 module AwsMock {
   const aws: any = {}
 
-  const response = (body: any) => () => ({promise: () => body})
+  const response = (body: any) => () => ({ promise: () => body })
 
   function DocumentClient() {
     // @ts-ignore
@@ -34,14 +34,47 @@ module AwsMock {
     // @ts-ignore
     this.listObjects = jest.fn(
       response({
+        Contents: [],
+      })
+    )
+
+    // @ts-ignore
+    this.createBucket = jest.fn(
+      response({
+        Contents: {},
+      })
+    )
+
+    // @ts-ignore
+    this.deleteObjects = jest.fn(
+      response({
+        Contents: {},
+      })
+    )
+
+    // @ts-ignore
+    this.getSignedUrl = (operation, params) => {
+      return `http://test.com/${params.Bucket}/${params.Key}`
+    }
+
+    // @ts-ignore
+    this.headBucket = jest.fn(
+      response({
+        Contents: {},
+      })
+    )
+
+    // @ts-ignore
+    this.upload = jest.fn(
+      response({
         Contents: {},
       })
     )
   }
 
-  aws.DynamoDB = {DocumentClient}
+  aws.DynamoDB = { DocumentClient }
   aws.S3 = S3
-  aws.config = {update: jest.fn()}
+  aws.config = { update: jest.fn() }
 
   module.exports = aws
 }

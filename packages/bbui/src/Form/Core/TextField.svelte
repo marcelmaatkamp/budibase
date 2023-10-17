@@ -1,6 +1,6 @@
 <script>
   import "@spectrum-css/textfield/dist/index-vars.css"
-  import { createEventDispatcher } from "svelte"
+  import { createEventDispatcher, onMount } from "svelte"
 
   export let value = null
   export let placeholder = null
@@ -11,19 +11,24 @@
   export let readonly = false
   export let updateOnChange = true
   export let quiet = false
+  export let align
+  export let autofocus = false
+  export let autocomplete = null
 
   const dispatch = createEventDispatcher()
+
+  let field
   let focus = false
 
-  const updateValue = value => {
+  const updateValue = newValue => {
     if (readonly) {
       return
     }
     if (type === "number") {
-      const float = parseFloat(value)
-      value = isNaN(float) ? null : float
+      const float = parseFloat(newValue)
+      newValue = isNaN(float) ? null : float
     }
-    dispatch("change", value)
+    dispatch("change", newValue)
   }
 
   const onFocus = () => {
@@ -56,6 +61,18 @@
       updateValue(event.target.value)
     }
   }
+
+  const getInputMode = type => {
+    if (type === "bigint") {
+      return "numeric"
+    }
+    return type === "number" ? "decimal" : "text"
+  }
+
+  onMount(() => {
+    focus = autofocus
+    if (focus) field.focus()
+  })
 </script>
 
 <div
@@ -75,11 +92,12 @@
     </svg>
   {/if}
   <input
+    bind:this={field}
     {disabled}
     {readonly}
     {id}
-    value={value || ""}
-    placeholder={placeholder || ""}
+    value={value ?? ""}
+    placeholder={placeholder ?? ""}
     on:click
     on:blur
     on:focus
@@ -91,6 +109,9 @@
     on:keyup={updateValueOnEnter}
     {type}
     class="spectrum-Textfield-input"
+    style={align ? `text-align: ${align};` : ""}
+    inputmode={getInputMode(type)}
+    {autocomplete}
   />
 </div>
 

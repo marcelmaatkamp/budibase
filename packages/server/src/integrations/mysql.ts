@@ -1,265 +1,422 @@
 import {
   Integration,
-  DatasourceFieldTypes,
-  QueryTypes,
-  Operation,
+  DatasourceFieldType,
+  QueryType,
   QueryJson,
   SqlQuery,
-} from "../definitions/datasource"
-import { Table, TableSchema } from "../definitions/common"
-import { getSqlQuery } from "./utils"
+  ExternalTable,
+  TableSchema,
+  DatasourcePlus,
+  DatasourceFeature,
+  ConnectionInfo,
+  SourceName,
+} from "@budibase/types"
+import {
+  getSqlQuery,
+  SqlClient,
+  buildExternalTableId,
+  convertSqlType,
+  finaliseExternalTables,
+} from "./utils"
+import dayjs from "dayjs"
+import { NUMBER_REGEX } from "../utilities"
+import Sql from "./base/sql"
+import { MySQLColumn } from "./base/types"
+import { getReadableErrorMessage } from "./base/errorMapping"
+import mysql from "mysql2/promise"
 
-module MySQLModule {
-  const mysql = require("mysql")
-  const Sql = require("./base/sql")
-  const { buildExternalTableId, convertType } = require("./utils")
-  const { FieldTypes } = require("../constants")
+interface MySQLConfig extends mysql.ConnectionOptions {
+  database: string
+  rejectUnauthorized: boolean
+}
 
-  interface MySQLConfig {
-    host: string
-    port: number
-    user: string
-    password: string
-    database: string
-    ssl?: object
-  }
-
-  const TYPE_MAP = {
-    text: FieldTypes.LONGFORM,
-    blob: FieldTypes.LONGFORM,
-    enum: FieldTypes.STRING,
-    varchar: FieldTypes.STRING,
-    float: FieldTypes.NUMBER,
-    int: FieldTypes.NUMBER,
-    numeric: FieldTypes.NUMBER,
-    bigint: FieldTypes.NUMBER,
-    mediumint: FieldTypes.NUMBER,
-    decimal: FieldTypes.NUMBER,
-    dec: FieldTypes.NUMBER,
-    double: FieldTypes.NUMBER,
-    real: FieldTypes.NUMBER,
-    fixed: FieldTypes.NUMBER,
-    smallint: FieldTypes.NUMBER,
-    timestamp: FieldTypes.DATETIME,
-    date: FieldTypes.DATETIME,
-    datetime: FieldTypes.DATETIME,
-    time: FieldTypes.DATETIME,
-    tinyint: FieldTypes.BOOLEAN,
-    json: DatasourceFieldTypes.JSON,
-  }
-
-  const SCHEMA: Integration = {
-    docs: "https://github.com/mysqljs/mysql",
-    plus: true,
-    friendlyName: "MySQL",
-    description:
-      "MySQL Database Service is a fully managed database service to deploy cloud-native applications. ",
-    datasource: {
-      host: {
-        type: DatasourceFieldTypes.STRING,
-        default: "localhost",
-        required: true,
-      },
-      port: {
-        type: DatasourceFieldTypes.NUMBER,
-        default: 3306,
-        required: false,
-      },
-      user: {
-        type: DatasourceFieldTypes.STRING,
-        default: "root",
-        required: true,
-      },
-      password: {
-        type: DatasourceFieldTypes.PASSWORD,
-        default: "root",
-        required: true,
-      },
-      database: {
-        type: DatasourceFieldTypes.STRING,
-        required: true,
-      },
-      ssl: {
-        type: DatasourceFieldTypes.OBJECT,
-        required: false,
-      },
+const SCHEMA: Integration = {
+  docs: "https://github.com/sidorares/node-mysql2",
+  plus: true,
+  friendlyName: "MySQL",
+  type: "Relational",
+  description:
+    "MySQL Database Service is a fully managed database service to deploy cloud-native applications. ",
+  features: {
+    [DatasourceFeature.CONNECTION_CHECKING]: true,
+    [DatasourceFeature.FETCH_TABLE_NAMES]: true,
+    [DatasourceFeature.EXPORT_SCHEMA]: true,
+  },
+  datasource: {
+    host: {
+      type: DatasourceFieldType.STRING,
+      default: "localhost",
+      required: true,
     },
-    query: {
-      create: {
-        type: QueryTypes.SQL,
-      },
-      read: {
-        type: QueryTypes.SQL,
-      },
-      update: {
-        type: QueryTypes.SQL,
-      },
-      delete: {
-        type: QueryTypes.SQL,
-      },
+    port: {
+      type: DatasourceFieldType.NUMBER,
+      default: 3306,
+      required: false,
     },
-  }
+    user: {
+      type: DatasourceFieldType.STRING,
+      default: "root",
+      required: true,
+    },
+    password: {
+      type: DatasourceFieldType.PASSWORD,
+      default: "root",
+      required: true,
+    },
+    database: {
+      type: DatasourceFieldType.STRING,
+      required: true,
+    },
+    ssl: {
+      type: DatasourceFieldType.OBJECT,
+      required: false,
+    },
+    rejectUnauthorized: {
+      type: DatasourceFieldType.BOOLEAN,
+      default: true,
+      required: false,
+    },
+  },
+  query: {
+    create: {
+      type: QueryType.SQL,
+    },
+    read: {
+      type: QueryType.SQL,
+    },
+    update: {
+      type: QueryType.SQL,
+    },
+    delete: {
+      type: QueryType.SQL,
+    },
+  },
+}
 
-  function internalQuery(
-    client: any,
-    query: SqlQuery,
-    connect: boolean = true
-  ): Promise<any[]> {
-    // Node MySQL is callback based, so we must wrap our call in a promise
-    return new Promise((resolve, reject) => {
-      if (connect) {
-        client.connect()
+const defaultTypeCasting = function (field: any, next: any) {
+  if (
+    field.type == "DATETIME" ||
+    field.type === "DATE" ||
+    field.type === "TIMESTAMP" ||
+    field.type === "LONGLONG"
+  ) {
+    return field.string()
+  }
+  if (field.type === "BIT" && field.length === 1) {
+    return field.buffer()?.[0]
+  }
+  return next()
+}
+
+export function bindingTypeCoerce(bindings: any[]) {
+  for (let i = 0; i < bindings.length; i++) {
+    const binding = bindings[i]
+    if (typeof binding !== "string") {
+      continue
+    }
+    const matches = binding.match(NUMBER_REGEX)
+    // check if number first
+    if (matches && matches[0] !== "" && !isNaN(Number(matches[0]))) {
+      bindings[i] = parseFloat(binding)
+    }
+    // if not a number, see if it is a date - important to do in this order as any
+    // integer will be considered a valid date
+    else if (
+      /^\d/.test(binding) &&
+      dayjs(binding).isValid() &&
+      !binding.includes(",")
+    ) {
+      let value: any
+      value = new Date(binding)
+      if (isNaN(value)) {
+        value = binding
       }
-      return client.query(
-        query.sql,
-        query.bindings || {},
-        (error: any, results: object[]) => {
-          if (error) {
-            reject(error)
+      bindings[i] = value
+    }
+  }
+  return bindings
+}
+
+class MySQLIntegration extends Sql implements DatasourcePlus {
+  private config: MySQLConfig
+  private client?: mysql.Connection
+  public tables: Record<string, ExternalTable> = {}
+  public schemaErrors: Record<string, string> = {}
+
+  constructor(config: MySQLConfig) {
+    super(SqlClient.MY_SQL)
+    this.config = config
+    if (config.ssl && Object.keys(config.ssl).length === 0) {
+      delete config.ssl
+    }
+    // make sure this defaults to true
+    if (
+      config.rejectUnauthorized != null &&
+      !config.rejectUnauthorized &&
+      config.ssl &&
+      typeof config.ssl !== "string"
+    ) {
+      config.ssl.rejectUnauthorized = config.rejectUnauthorized
+    }
+    // The MySQL library we use doesn't directly document the parameters that can be passed in the ssl
+    // object, it instead points to an older library that it says it is mostly API compatible with, that
+    // older library actually documents what parameters can be passed in the ssl object.
+    // https://github.com/sidorares/node-mysql2#api-and-configuration
+    // https://github.com/mysqljs/mysql#ssl-options
+
+    // @ts-ignore
+    delete config.rejectUnauthorized
+    this.config = {
+      ...config,
+      typeCast: defaultTypeCasting,
+      multipleStatements: true,
+    }
+  }
+
+  async testConnection() {
+    const response: ConnectionInfo = {
+      connected: false,
+    }
+    try {
+      const [result] = await this.internalQuery(
+        { sql: "SELECT 1+1 AS checkRes" },
+        { connect: true }
+      )
+      response.connected = result?.checkRes == 2
+    } catch (e: any) {
+      let readableMessage = getReadableErrorMessage(SourceName.MYSQL, e.errno)
+      if (readableMessage) {
+        response.error = readableMessage
+      } else {
+        response.error = e.message as string
+      }
+    }
+    return response
+  }
+
+  getBindingIdentifier(): string {
+    return "?"
+  }
+
+  getStringConcat(parts: string[]): string {
+    return `concat(${parts.join(", ")})`
+  }
+
+  defineTypeCastingFromSchema(schema: {
+    [key: string]: { name: string; type: string }
+  }): void {
+    if (!schema) {
+      return
+    }
+    this.config.typeCast = function (field: any, next: any) {
+      if (schema[field.name]?.name === field.name) {
+        if (["LONGLONG", "NEWDECIMAL", "DECIMAL"].includes(field.type)) {
+          if (schema[field.name]?.type === "number") {
+            const value = field.string()
+            return value ? Number(value) : null
           } else {
-            resolve(results)
-          }
-          if (connect) {
-            client.end()
+            return field.string()
           }
         }
-      )
-    })
+      }
+      if (
+        field.type == "DATETIME" ||
+        field.type === "DATE" ||
+        field.type === "TIMESTAMP"
+      ) {
+        return field.string()
+      }
+      if (field.type === "BIT" && field.length === 1) {
+        return field.buffer()?.[0]
+      }
+      return next()
+    }
   }
 
-  class MySQLIntegration extends Sql {
-    private config: MySQLConfig
-    private readonly client: any
+  async connect() {
+    this.client = await mysql.createConnection(this.config)
+  }
 
-    constructor(config: MySQLConfig) {
-      super("mysql")
-      this.config = config
-      if (config.ssl && Object.keys(config.ssl).length === 0) {
-        delete config.ssl
-      }
-      this.client = mysql.createConnection(config)
+  async disconnect() {
+    await this.client!.end()
+  }
+
+  async internalQuery(
+    query: SqlQuery,
+    opts: {
+      connect?: boolean
+      disableCoercion?: boolean
+    } = {
+      connect: true,
+      disableCoercion: false,
     }
+  ): Promise<any[] | any> {
+    try {
+      if (opts?.connect) {
+        await this.connect()
+      }
+      const baseBindings = query.bindings || []
+      const bindings = opts?.disableCoercion
+        ? baseBindings
+        : bindingTypeCoerce(baseBindings)
+      // Node MySQL is callback based, so we must wrap our call in a promise
+      const response = await this.client!.query(query.sql, bindings)
+      return response[0]
+    } catch (err: any) {
+      let readableMessage = getReadableErrorMessage(SourceName.MYSQL, err.errno)
+      if (readableMessage) {
+        throw new Error(readableMessage)
+      } else {
+        throw new Error(err.message as string)
+      }
+    } finally {
+      if (opts?.connect && this.client) {
+        await this.disconnect()
+      }
+    }
+  }
 
-    async buildSchema(datasourceId: string) {
-      const tables: { [key: string]: Table } = {}
-      const database = this.config.database
-      this.client.connect()
+  async buildSchema(
+    datasourceId: string,
+    entities: Record<string, ExternalTable>
+  ) {
+    const tables: { [key: string]: ExternalTable } = {}
+    await this.connect()
 
+    try {
       // get the tables first
-      const tablesResp = await internalQuery(
-        this.client,
-        { sql: "SHOW TABLES;" },
-        false
-      )
-      const tableNames = tablesResp.map(
-        (obj: any) => obj[`Tables_in_${database}`]
-      )
+      const tableNames = await this.queryTableNames()
       for (let tableName of tableNames) {
         const primaryKeys = []
         const schema: TableSchema = {}
-        const descResp = await internalQuery(
-          this.client,
-          { sql: `DESCRIBE ${tableName};` },
-          false
+        const descResp: MySQLColumn[] = await this.internalQuery(
+          { sql: `DESCRIBE \`${tableName}\`;` },
+          { connect: false }
         )
         for (let column of descResp) {
           const columnName = column.Field
           if (column.Key === "PRI" && primaryKeys.indexOf(column.Key) === -1) {
             primaryKeys.push(columnName)
           }
-          const constraints = {
-            presence: column.Null !== "YES",
-          }
+          const hasDefault = column.Default != null
           const isAuto: boolean =
             typeof column.Extra === "string" &&
             (column.Extra === "auto_increment" ||
               column.Extra.toLowerCase().includes("generated"))
+          const required = column.Null !== "YES"
+          const constraints = {
+            presence: required && !isAuto && !hasDefault,
+          }
           schema[columnName] = {
             name: columnName,
             autocolumn: isAuto,
-            type: convertType(column.Type, TYPE_MAP),
             constraints,
+            ...convertSqlType(column.Type),
+            externalType: column.Type,
           }
-        }
-        // for now just default to first column
-        if (primaryKeys.length === 0) {
-          primaryKeys.push(descResp[0].Field)
         }
         if (!tables[tableName]) {
           tables[tableName] = {
             _id: buildExternalTableId(datasourceId, tableName),
+            sourceId: datasourceId,
             primary: primaryKeys,
             name: tableName,
             schema,
           }
         }
       }
-
-      this.client.end()
-      this.tables = tables
+    } finally {
+      await this.disconnect()
     }
+    const final = finaliseExternalTables(tables, entities)
+    this.tables = final.tables
+    this.schemaErrors = final.errors
+  }
 
-    async create(query: SqlQuery | string) {
-      const results = await internalQuery(this.client, getSqlQuery(query))
-      return results.length ? results : [{ created: true }]
+  async queryTableNames() {
+    const database = this.config.database
+    const tablesResp: Record<string, string>[] = await this.internalQuery(
+      { sql: "SHOW TABLES;" },
+      { connect: false }
+    )
+    return tablesResp.map(
+      (obj: any) =>
+        obj[`Tables_in_${database}`] ||
+        obj[`Tables_in_${database.toLowerCase()}`]
+    )
+  }
+
+  async getTableNames() {
+    await this.connect()
+    try {
+      return this.queryTableNames()
+    } finally {
+      await this.disconnect()
     }
+  }
 
-    read(query: SqlQuery | string) {
-      return internalQuery(this.client, getSqlQuery(query))
+  async create(query: SqlQuery | string) {
+    const results = await this.internalQuery(getSqlQuery(query))
+    return results.length ? results : [{ created: true }]
+  }
+
+  async read(query: SqlQuery | string) {
+    return this.internalQuery(getSqlQuery(query))
+  }
+
+  async update(query: SqlQuery | string) {
+    const results = await this.internalQuery(getSqlQuery(query))
+    return results.length ? results : [{ updated: true }]
+  }
+
+  async delete(query: SqlQuery | string) {
+    const results = await this.internalQuery(getSqlQuery(query))
+    return results.length ? results : [{ deleted: true }]
+  }
+
+  async query(json: QueryJson) {
+    await this.connect()
+    try {
+      const queryFn = (query: any) =>
+        this.internalQuery(query, { connect: false, disableCoercion: true })
+      return await this.queryWithReturning(json, queryFn)
+    } finally {
+      await this.disconnect()
     }
+  }
 
-    async update(query: SqlQuery | string) {
-      const results = await internalQuery(this.client, getSqlQuery(query))
-      return results.length ? results : [{ updated: true }]
-    }
-
-    async delete(query: SqlQuery | string) {
-      const results = await internalQuery(this.client, getSqlQuery(query))
-      return results.length ? results : [{ deleted: true }]
-    }
-
-    async getReturningRow(json: QueryJson) {
-      if (!json.extra || !json.extra.idFilter) {
-        return {}
-      }
-      const input = this._query({
-        endpoint: {
-          ...json.endpoint,
-          operation: Operation.READ,
-        },
-        fields: [],
-        filters: json.extra.idFilter,
-        paginate: {
-          limit: 1,
-        },
+  async getExternalSchema() {
+    try {
+      const [databaseResult] = await this.internalQuery({
+        sql: `SHOW CREATE DATABASE ${this.config.database}`,
       })
-      return internalQuery(this.client, input, false)
-    }
+      let dumpContent = [databaseResult["Create Database"]]
 
-    async query(json: QueryJson) {
-      const operation = this._operation(json)
-      this.client.connect()
-      const input = this._query(json, { disableReturning: true })
-      let row
-      // need to manage returning, a feature mySQL can't do
-      if (operation === "awdawd") {
-        row = this.getReturningRow(json)
+      const tablesResult = await this.internalQuery({
+        sql: `SHOW TABLES`,
+      })
+
+      for (const row of tablesResult) {
+        const tableName = row[`Tables_in_${this.config.database}`]
+
+        const createTableResults = await this.internalQuery({
+          sql: `SHOW CREATE TABLE \`${tableName}\``,
+        })
+
+        const createTableStatement = createTableResults[0]["Create Table"]
+
+        dumpContent.push(createTableStatement)
       }
-      const results = await internalQuery(this.client, input, false)
-      // same as delete, manage returning
-      if (operation === Operation.CREATE || operation === Operation.UPDATE) {
-        row = this.getReturningRow(json)
-      }
-      this.client.end()
-      if (operation !== Operation.READ) {
-        return row
-      }
-      return results.length ? results : [{ [operation.toLowerCase()]: true }]
+
+      const schema = dumpContent.join("\n")
+      return schema
+    } finally {
+      this.disconnect()
     }
   }
+}
 
-  module.exports = {
-    schema: SCHEMA,
-    integration: MySQLIntegration,
-  }
+export default {
+  schema: SCHEMA,
+  integration: MySQLIntegration,
 }
