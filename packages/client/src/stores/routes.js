@@ -1,6 +1,6 @@
 import { get, writable } from "svelte/store"
 import { push } from "svelte-spa-router"
-import * as API from "../api"
+import { API } from "api"
 import { peekStore } from "./peek"
 import { builderStore } from "./builder"
 
@@ -16,10 +16,15 @@ const createRouteStore = () => {
   const store = writable(initialState)
 
   const fetchRoutes = async () => {
-    const routeConfig = await API.fetchRoutes()
+    let routeConfig
+    try {
+      routeConfig = await API.fetchClientAppRoutes()
+    } catch (error) {
+      routeConfig = null
+    }
     let routes = []
-    Object.values(routeConfig.routes).forEach(route => {
-      Object.entries(route.subpaths).forEach(([path, config]) => {
+    Object.values(routeConfig?.routes || {}).forEach(route => {
+      Object.entries(route.subpaths || {}).forEach(([path, config]) => {
         routes.push({
           path,
           screenId: config.screenId,
@@ -61,27 +66,42 @@ const createRouteStore = () => {
       return state
     })
   }
-  const navigate = (url, peek) => {
+  const navigate = (url, peek, externalNewTab) => {
     if (get(builderStore).inBuilder) {
       return
     }
     if (url) {
       // If we're already peeking, don't peek again
       const isPeeking = get(store).queryParams?.peek
-      if (peek && !isPeeking) {
+      const external = !url.startsWith("/")
+      if (peek && !isPeeking && !external) {
         peekStore.actions.showPeek(url)
-      } else {
-        const external = !url.startsWith("/")
-        if (external) {
-          window.location.href = url
-        } else {
-          push(url)
+      } else if (external) {
+        if (url.startsWith("www")) {
+          url = `https://${url}`
         }
+        if (externalNewTab) {
+          window.open(url, "_blank")
+        } else {
+          window.location.href = url
+        }
+      } else {
+        push(url)
       }
     }
   }
   const setRouterLoaded = () => {
     store.update(state => ({ ...state, routerLoaded: true }))
+  }
+  const createFullURL = relativeURL => {
+    if (!relativeURL?.startsWith("/")) {
+      return relativeURL
+    }
+    if (!window.location.href.includes("#")) {
+      return `${window.location.href}#${relativeURL}`
+    }
+    const base = window.location.href.split("#")[0]
+    return `${base}#${relativeURL}`
   }
 
   return {
@@ -89,6 +109,7 @@ const createRouteStore = () => {
     actions: {
       fetchRoutes,
       navigate,
+      createFullURL,
       setRouteParams,
       setQueryParams,
       setActiveRoute,

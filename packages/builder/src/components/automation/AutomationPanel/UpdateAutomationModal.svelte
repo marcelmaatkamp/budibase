@@ -2,14 +2,13 @@
   import { automationStore } from "builderStore"
   import { notifications } from "@budibase/bbui"
   import { Icon, Input, ModalContent, Modal } from "@budibase/bbui"
-  import analytics, { Events } from "analytics"
+
+  export let automation
+  export let onCancel = undefined
 
   let name
   let error = ""
   let modal
-
-  export let automation
-  export let onCancel = undefined
 
   export const show = () => {
     name = automation?.name
@@ -20,14 +19,17 @@
   }
 
   async function saveAutomation() {
-    const updatedAutomation = {
-      ...automation,
-      name,
+    try {
+      const updatedAutomation = {
+        ...automation,
+        name,
+      }
+      await automationStore.actions.save(updatedAutomation)
+      notifications.success(`Automation ${name} updated successfully`)
+      hide()
+    } catch (error) {
+      notifications.error("Error saving automation")
     }
-    await automationStore.actions.save(updatedAutomation)
-    notifications.success(`Automation ${name} updated successfully.`)
-    analytics.captureEvent(Events.AUTOMATION.SAVED, { name })
-    hide()
   }
 
   function checkValid(evt) {
@@ -52,7 +54,7 @@
     <a
       slot="footer"
       target="_blank"
-      href="https://docs.budibase.com/automate/introduction-to-automate"
+      href="https://docs.budibase.com/docs/automation-steps"
     >
       <Icon name="InfoOutline" />
       <span>Learn about automations</span>

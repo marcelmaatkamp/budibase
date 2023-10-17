@@ -1,23 +1,25 @@
 <script>
   import { tables } from "stores/backend"
-  import {
-    Select,
-    Toggle,
-    DatePicker,
-    Multiselect,
-    TextArea,
-  } from "@budibase/bbui"
-  import DrawerBindableInput from "../../common/bindings/DrawerBindableInput.svelte"
-  import AutomationBindingPanel from "../../common/bindings/ServerBindingPanel.svelte"
+  import { Select, Checkbox } from "@budibase/bbui"
   import { createEventDispatcher } from "svelte"
-  import ModalBindableInput from "components/common/bindings/ModalBindableInput.svelte"
-  import LinkedRowSelector from "components/common/LinkedRowSelector.svelte"
-  import { automationStore } from "builderStore"
+  import RowSelectorTypes from "./RowSelectorTypes.svelte"
+  import DrawerBindableSlot from "../../common/bindings/DrawerBindableSlot.svelte"
+  import AutomationBindingPanel from "../../common/bindings/ServerBindingPanel.svelte"
 
   const dispatch = createEventDispatcher()
 
   export let value
+  export let meta
   export let bindings
+  export let isTestModal
+  export let isUpdateRow
+
+  $: parsedBindings = bindings.map(binding => {
+    let clone = Object.assign({}, binding)
+    clone.icon = "ShareAndroid"
+    return clone
+  })
+
   let table
   let schemaFields
 
@@ -37,18 +39,64 @@
     dispatch("change", value)
   }
 
-  const onChange = (e, field) => {
-    value[field] = e.detail
-    dispatch("change", value)
+  const coerce = (value, type) => {
+    const re = new RegExp(/{{([^{].*?)}}/g)
+    if (re.test(value)) {
+      return value
+    }
+
+    if (type === "number") {
+      if (typeof value === "number") {
+        return value
+      }
+      return Number(value)
+    }
+    if (type === "options" || type === "boolean") {
+      return value
+    }
+    if (type === "array") {
+      if (Array.isArray(value)) {
+        return value
+      }
+      return value.split(",").map(x => x.trim())
+    }
+
+    if (type === "link") {
+      if (Array.isArray(value)) {
+        return value
+      }
+      return value.split(",").map(x => x.trim())
+    }
+
+    if (type === "json") {
+      return value.value
+    }
+
+    return value
+  }
+
+  const onChange = (e, field, type) => {
+    let newValue = {
+      ...value,
+      [field]: coerce(e.detail, type),
+    }
+    dispatch("change", newValue)
+  }
+
+  const onChangeSetting = (e, field) => {
+    let fields = {}
+    fields[field] = {
+      clearRelationships: e.detail,
+    }
+    dispatch("change", {
+      key: "meta",
+      fields,
+    })
   }
 
   // Ensure any nullish tableId values get set to empty string so
   // that the select works
   $: if (value?.tableId == null) value = { tableId: "" }
-
-  function schemaHasOptions(schema) {
-    return !!schema.constraints?.inclusion?.length
-  }
 </script>
 
 <Select
@@ -61,59 +109,51 @@
 {#if schemaFields.length}
   <div class="schema-fields">
     {#each schemaFields as [field, schema]}
-      {#if !schema.autocolumn}
-        {#if schemaHasOptions(schema) && schema.type !== "array"}
-          <Select
-            on:change={e => onChange(e, field)}
+      {#if !schema.autocolumn && schema.type !== "attachment"}
+        {#if isTestModal}
+          <RowSelectorTypes
+            {isTestModal}
+            {field}
+            {schema}
+            bindings={parsedBindings}
+            {value}
+            {onChange}
+          />
+        {:else}
+          <DrawerBindableSlot
+            fillWidth
+            title={value.title}
             label={field}
-            value={value[field]}
-            options={schema.constraints.inclusion}
-          />
-        {:else if schema.type === "datetime"}
-          <DatePicker
-            label={field}
+            panel={AutomationBindingPanel}
+            type={schema.type}
+            {schema}
             value={value[field]}
             on:change={e => onChange(e, field)}
-          />
-        {:else if schema.type === "boolean"}
-          <Toggle
-            text={field}
-            value={value[field]}
-            on:change={e => onChange(e, field)}
-          />
-        {:else if schema.type === "array"}
-          <Multiselect
-            bind:value={value[field]}
-            label={field}
-            options={schema.constraints.inclusion}
-          />
-        {:else if schema.type === "longform"}
-          <TextArea label={field} bind:value={value[field]} />
-        {:else if schema.type === "link"}
-          <LinkedRowSelector bind:linkedRows={value[field]} {schema} />
-        {:else if schema.type === "string" || schema.type === "number"}
-          {#if $automationStore.selectedAutomation.automation.testData}
-            <ModalBindableInput
-              value={value[field]}
-              panel={AutomationBindingPanel}
-              label={field}
-              type={value.customType}
-              on:change={e => onChange(e, field)}
-              {bindings}
+            {bindings}
+            allowJS={true}
+            updateOnChange={false}
+            drawerLeft="260px"
+          >
+            <RowSelectorTypes
+              {isTestModal}
+              {field}
+              {schema}
+              bindings={parsedBindings}
+              {value}
+              {onChange}
             />
-          {:else}
-            <DrawerBindableInput
-              panel={AutomationBindingPanel}
-              value={value[field]}
-              on:change={e => onChange(e, field)}
-              label={field}
-              type="string"
-              {bindings}
-              fillWidth={true}
-              allowJS={false}
-            />
-          {/if}
+          </DrawerBindableSlot>
         {/if}
+      {/if}
+      {#if isUpdateRow && schema.type === "link"}
+        <div class="checkbox-field">
+          <Checkbox
+            value={meta.fields?.[field]?.clearRelationships}
+            text={"Clear relationships if empty?"}
+            size={"S"}
+            on:change={e => onChangeSetting(e, field)}
+          />
+        </div>
       {/if}
     {/each}
   </div>
@@ -127,5 +167,13 @@
   }
   .schema-fields :global(label) {
     text-transform: capitalize;
+  }
+  .checkbox-field {
+    padding-bottom: var(--spacing-s);
+    padding-left: 1px;
+    padding-top: var(--spacing-s);
+  }
+  .checkbox-field :global(label) {
+    text-transform: none;
   }
 </style>

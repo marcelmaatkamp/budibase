@@ -1,30 +1,36 @@
 <script>
   import { isActive, redirect, params } from "@roxi/routify"
-  import { admin, auth } from "stores/portal"
+  import { admin, auth, licensing } from "stores/portal"
   import { onMount } from "svelte"
+  import { CookieUtils, Constants } from "@budibase/frontend-core"
+  import { API } from "api"
+  import Branding from "./Branding.svelte"
 
   let loaded = false
 
   $: multiTenancyEnabled = $admin.multiTenancy
   $: hasAdminUser = $admin?.checklist?.adminUser?.checked
+  $: baseUrl = $admin?.baseUrl
   $: tenantSet = $auth.tenantSet
-  $: cloud = $admin.cloud
+  $: cloud = $admin?.cloud
   $: user = $auth.user
 
   $: useAccountPortal = cloud && !$admin.disableAccountPortal
 
   const validateTenantId = async () => {
     const host = window.location.host
-    if (host.includes("localhost:")) {
+    if (host.includes("localhost:") || !baseUrl) {
       // ignore local dev
       return
     }
 
-    // e.g. ['tenant', 'budibase', 'app'] vs ['budibase', 'app']
+    const mainHost = new URL(baseUrl).host
     let urlTenantId
-    const hostParts = host.split(".")
-    if (hostParts.length > 2) {
-      urlTenantId = hostParts[0]
+    // remove the main host part
+    const hostParts = host.split(mainHost).filter(part => part !== "")
+    // if there is a part left, it has to be the tenant ID subdomain
+    if (hostParts.length === 1) {
+      urlTenantId = hostParts[0].replace(/\./g, "")
     }
 
     if (user && user.tenantId) {
@@ -38,35 +44,74 @@
         return
       }
 
-      if (user.tenantId !== urlTenantId) {
+      if (urlTenantId && user.tenantId !== urlTenantId) {
         // user should not be here - play it safe and log them out
-        await auth.logout()
-        await auth.setOrganisation(null)
-        return
+        try {
+          await auth.logout()
+          await auth.setOrganisation(null)
+        } catch (error) {
+          console.error(
+            `Tenant mis-match - "${urlTenantId}" and "${user.tenantId}" - logout`
+          )
+        }
       }
     } else {
       // no user - set the org according to the url
       await auth.setOrganisation(urlTenantId)
     }
   }
+  async function analyticsPing() {
+    await API.analyticsPing({ source: "builder" })
+  }
 
   onMount(async () => {
-    if ($params["?template"]) {
-      await auth.setInitInfo({ init_template: $params["?template"] })
+    try {
+      await auth.getSelf()
+      await admin.init()
+
+      if ($auth.user) {
+        await licensing.init()
+      }
+
+      // Set init info if present
+      if ($params["?template"]) {
+        await auth.setInitInfo({ init_template: $params["?template"] })
+      }
+
+      // Validate tenant if in a multi-tenant env
+      if (multiTenancyEnabled) {
+        await validateTenantId()
+      }
+    } catch (error) {
+      // Don't show a notification here, as we might 403 initially due to not
+      // being logged in
     }
-
-    await auth.checkAuth()
-    await admin.init()
-
-    if (useAccountPortal && multiTenancyEnabled) {
-      await validateTenantId()
-    }
-
     loaded = true
+
+    // lastly
+    await analyticsPing()
   })
 
   $: {
     const apiReady = $admin.loaded && $auth.loaded
+
+    // firstly, set the return url
+    if (
+      loaded &&
+      apiReady &&
+      !$auth.user &&
+      !CookieUtils.getCookie(Constants.Cookies.ReturnUrl) &&
+      // logout triggers a page refresh, so we don't want to set the return url
+      !$auth.postLogout &&
+      // don't set the return url on pre-login pages
+      !$isActive("./auth") &&
+      !$isActive("./invite") &&
+      !$isActive("./admin")
+    ) {
+      const url = window.location.pathname
+      CookieUtils.setCookie(Constants.Cookies.ReturnUrl, url)
+    }
+
     // if tenant is not set go to it
     if (
       loaded &&
@@ -90,15 +135,25 @@
       !$isActive("./invite") &&
       !$isActive("./admin")
     ) {
-      const returnUrl = encodeURIComponent(window.location.pathname)
-      $redirect("./auth?", { returnUrl })
+      $redirect("./auth")
     }
     // check if password reset required for user
     else if ($auth.user?.forceResetPassword) {
       $redirect("./auth/reset")
     }
+    // lastly, redirect to the return url if it has been set
+    else if (loaded && apiReady && $auth.user) {
+      const returnUrl = CookieUtils.getCookie(Constants.Cookies.ReturnUrl)
+      if (returnUrl) {
+        CookieUtils.removeCookie(Constants.Cookies.ReturnUrl)
+        window.location.href = returnUrl
+      }
+    }
   }
 </script>
+
+<!--Portal branding overrides -->
+<Branding />
 
 {#if loaded}
   <slot />

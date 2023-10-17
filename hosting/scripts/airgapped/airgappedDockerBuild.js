@@ -2,21 +2,28 @@ const fs = require("fs")
 const { execSync } = require("child_process")
 const path = require("path")
 
-const IMAGES = {
+const IS_SINGLE_IMAGE = process.env.SINGLE_IMAGE
+
+let IMAGES = {
 	worker: "budibase/worker",
 	apps: "budibase/apps",
-	proxy: "envoyproxy/envoy:v1.16-latest",
+	proxy: "budibase/proxy",
 	minio: "minio/minio",
 	couch: "ibmcom/couchdb3",
 	curl: "curlimages/curl",
 	redis: "redis",
-	watchtower: "containrrr/watchtower"
+	watchtower: "containrrr/watchtower",
+}
+
+if (IS_SINGLE_IMAGE) {
+	IMAGES = {
+		budibase: "budibase/budibase"
+	}
 }
 
 const FILES = {
 	COMPOSE: "docker-compose.yaml",
-	ENVOY: "envoy.yaml",
-	PROPERTIES: "hosting.properties"
+	ENV: ".env"
 }
 
 const OUTPUT_DIR = path.join(__dirname, "../", "bb-airgapped")
@@ -40,12 +47,10 @@ for (let image in IMAGES) {
 }
 
 // copy config files
-copyFile(FILES.COMPOSE)
-copyFile(FILES.ENVOY)
-copyFile(FILES.PROPERTIES)
+if (!IS_SINGLE_IMAGE) {
+	copyFile(FILES.COMPOSE)
+}
+copyFile(FILES.ENV)
 
 // compress
 execSync(`tar -czf bb-airgapped.tar.gz hosting/scripts/bb-airgapped`)
-
-// clean up
-fs.rmdirSync(OUTPUT_DIR, { recursive: true })

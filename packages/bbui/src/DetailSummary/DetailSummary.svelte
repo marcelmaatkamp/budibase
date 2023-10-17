@@ -19,13 +19,19 @@
 </script>
 
 <div class="property-group-container">
-  <div class="property-group-name" on:click={onHeaderClick}>
-    <div class="name">{name}</div>
-    {#if collapsible}
-      <Icon size="S" name={show ? "Remove" : "Add"} />
-    {/if}
-  </div>
-  <div class="property-panel" class:show={show || !collapsible}>
+  {#if name}
+    <div class="property-group-name" on:click={onHeaderClick}>
+      <div class="name">{name}</div>
+      {#if collapsible}
+        <Icon size="S" name={show ? "Remove" : "Add"} />
+      {/if}
+    </div>
+  {/if}
+  <div
+    class="property-panel"
+    class:show={show || !collapsible}
+    class:no-title={!name}
+  >
     <slot />
   </div>
 </div>
@@ -38,7 +44,9 @@
     align-items: stretch;
     border-bottom: var(--border-light);
   }
-
+  .property-group-container:last-child {
+    border-bottom: 0px;
+  }
   .property-group-name {
     cursor: pointer;
     display: flex;
@@ -71,6 +79,9 @@
     display: none;
     padding: var(--spacing-s) var(--spacing-xl) var(--spacing-xl)
       var(--spacing-xl);
+  }
+  .property-panel.no-title {
+    padding: var(--spacing-xl);
   }
 
   .show {

@@ -1,7 +1,8 @@
 <script>
   import { getContext } from "svelte"
 
-  const { linkable, styleable, builderStore } = getContext("sdk")
+  const { linkable, styleable, builderStore, sidePanelStore } =
+    getContext("sdk")
   const component = getContext("component")
 
   export let url
@@ -21,10 +22,24 @@
   $: target = openInNewTab ? "_blank" : "_self"
   $: placeholder = $builderStore.inBuilder && !text
   $: componentText = getComponentText(text, $builderStore, $component)
+  $: sanitizedUrl = getSanitizedUrl(url, externalLink, openInNewTab)
 
   // Add color styles to main styles object, otherwise the styleable helper
   // overrides the color when it's passed as inline style.
   $: styles = enrichStyles($component.styles, color)
+
+  const getSanitizedUrl = (url, externalLink, newTab) => {
+    if (!url) {
+      return externalLink || newTab ? "#/" : "/"
+    }
+    if (externalLink) {
+      return url
+    }
+    if (openInNewTab) {
+      return `#${url}`
+    }
+    return url
+  }
 
   const getComponentText = (text, builderState, componentState) => {
     if (!builderState.inBuilder || componentState.editing) {
@@ -47,7 +62,7 @@
   }
 
   const updateText = e => {
-    builderStore.actions.updateProp("text", e.target.textContent.trim())
+    builderStore.actions.updateProp("text", e.target.textContent)
   }
 </script>
 
@@ -65,10 +80,10 @@
     {componentText}
   </div>
 {:else if $builderStore.inBuilder || componentText}
-  {#if externalLink}
+  {#if externalLink || openInNewTab}
     <a
       {target}
-      href={url || "/"}
+      href={sanitizedUrl}
       use:styleable={styles}
       class:placeholder
       class:bold
@@ -79,18 +94,21 @@
       {componentText}
     </a>
   {:else}
-    <a
-      use:linkable
-      href={url || "/"}
-      use:styleable={styles}
-      class:placeholder
-      class:bold
-      class:italic
-      class:underline
-      class="align--{align || 'left'} size--{size || 'M'}"
-    >
-      {componentText}
-    </a>
+    {#key sanitizedUrl}
+      <a
+        use:linkable
+        href={sanitizedUrl}
+        use:styleable={styles}
+        class:placeholder
+        class:bold
+        class:italic
+        class:underline
+        class="align--{align || 'left'} size--{size || 'M'}"
+        on:click={sidePanelStore.actions.close}
+      >
+        {componentText}
+      </a>
+    {/key}
   {/if}
 {/if}
 

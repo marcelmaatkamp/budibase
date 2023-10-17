@@ -1,108 +1,149 @@
 import {
+  ConnectionInfo,
+  DatasourceFeature,
+  DatasourceFieldType,
+  Document,
   Integration,
-  DatasourceFieldTypes,
-  QueryTypes,
-} from "../definitions/datasource"
-import { IntegrationBase } from "./base/IntegrationBase"
+  IntegrationBase,
+  QueryType,
+} from "@budibase/types"
+import { db as dbCore } from "@budibase/backend-core"
 
-module CouchDBModule {
-  const PouchDB = require("pouchdb")
+interface CouchDBConfig {
+  url: string
+  database: string
+}
 
-  interface CouchDBConfig {
-    url: string
-    database: string
-  }
-
-  const SCHEMA: Integration = {
-    docs: "https://docs.couchdb.org/en/stable/",
-    friendlyName: "CouchDB",
-    description:
-      "Apache CouchDB is an open-source document-oriented NoSQL database, implemented in Erlang.",
-    datasource: {
-      url: {
-        type: DatasourceFieldTypes.STRING,
-        required: true,
-        default: "http://localhost:5984",
-      },
-      database: {
-        type: DatasourceFieldTypes.STRING,
-        required: true,
-      },
+const SCHEMA: Integration = {
+  docs: "https://docs.couchdb.org/en/stable/",
+  friendlyName: "CouchDB",
+  type: "Non-relational",
+  description:
+    "Apache CouchDB is an open-source document-oriented NoSQL database, implemented in Erlang.",
+  features: {
+    [DatasourceFeature.CONNECTION_CHECKING]: true,
+  },
+  datasource: {
+    url: {
+      type: DatasourceFieldType.STRING,
+      required: true,
+      default: "http://localhost:5984",
     },
-    query: {
-      create: {
-        type: QueryTypes.JSON,
-      },
-      read: {
-        type: QueryTypes.JSON,
-      },
-      update: {
-        type: QueryTypes.JSON,
-      },
-      delete: {
-        type: QueryTypes.FIELDS,
-        fields: {
-          id: {
-            type: DatasourceFieldTypes.STRING,
-            required: true,
-          },
+    database: {
+      type: DatasourceFieldType.STRING,
+      required: true,
+    },
+  },
+  query: {
+    create: {
+      type: QueryType.JSON,
+    },
+    read: {
+      type: QueryType.JSON,
+    },
+    update: {
+      type: QueryType.JSON,
+    },
+    get: {
+      type: QueryType.FIELDS,
+      fields: {
+        id: {
+          type: DatasourceFieldType.STRING,
+          required: true,
         },
       },
     },
+    delete: {
+      type: QueryType.FIELDS,
+      fields: {
+        id: {
+          type: DatasourceFieldType.STRING,
+          required: true,
+        },
+      },
+    },
+  },
+}
+
+class CouchDBIntegration implements IntegrationBase {
+  private readonly client: dbCore.DatabaseImpl
+
+  constructor(config: CouchDBConfig) {
+    this.client = dbCore.DatabaseWithConnection(config.database, config.url)
   }
 
-  class CouchDBIntegration implements IntegrationBase {
-    private config: CouchDBConfig
-    private client: any
-
-    constructor(config: CouchDBConfig) {
-      this.config = config
-      this.client = new PouchDB(`${config.url}/${config.database}`)
+  async testConnection() {
+    const response: ConnectionInfo = {
+      connected: false,
     }
-
-    async create(query: { json: object }) {
-      try {
-        return this.client.post(query.json)
-      } catch (err) {
-        console.error("Error writing to couchDB", err)
-        throw err
-      }
+    try {
+      const result = await this.query("exists", "validation error", {})
+      response.connected = result === true
+    } catch (e: any) {
+      response.error = e.message as string
     }
+    return response
+  }
 
-    async read(query: { json: object }) {
-      try {
-        const result = await this.client.allDocs({
-          include_docs: true,
-          ...query.json,
-        })
-        return result.rows.map((row: { doc: object }) => row.doc)
-      } catch (err) {
-        console.error("Error querying couchDB", err)
-        throw err
-      }
-    }
-
-    async update(query: { json: object }) {
-      try {
-        return this.client.put(query.json)
-      } catch (err) {
-        console.error("Error updating couchDB document", err)
-        throw err
-      }
-    }
-
-    async delete(query: { id: string }) {
-      try {
-        return await this.client.remove(query.id)
-      } catch (err) {
-        console.error("Error deleting couchDB document", err)
-        throw err
-      }
+  async query(
+    command: string,
+    errorMsg: string,
+    query: { json?: object; id?: string }
+  ) {
+    try {
+      return await (this.client as any)[command](query.id || query.json)
+    } catch (err) {
+      console.error(errorMsg, err)
+      throw err
     }
   }
 
-  module.exports = {
-    schema: SCHEMA,
-    integration: CouchDBIntegration,
+  private parse(query: { json: string | object }) {
+    return typeof query.json === "string" ? JSON.parse(query.json) : query.json
   }
+
+  async create(query: { json: string | object }) {
+    const parsed = this.parse(query)
+    return this.query("post", "Error writing to couchDB", { json: parsed })
+  }
+
+  async read(query: { json: string | object }) {
+    const parsed = this.parse(query)
+    const result = await this.query("allDocs", "Error querying couchDB", {
+      json: {
+        include_docs: true,
+        ...parsed,
+      },
+    })
+    return result.rows.map((row: { doc: object }) => row.doc)
+  }
+
+  async update(query: { json: string | object }) {
+    const parsed: Document = this.parse(query)
+    if (!parsed?._rev && parsed?._id) {
+      const oldDoc = await this.get({ id: parsed._id })
+      parsed._rev = oldDoc._rev
+    }
+    return this.query("put", "Error updating couchDB document", {
+      json: parsed,
+    })
+  }
+
+  async get(query: { id: string }) {
+    return this.query("get", "Error retrieving couchDB document by ID", {
+      id: query.id,
+    })
+  }
+
+  async delete(query: { id: string }) {
+    const doc = await this.query("get", "Cannot find doc to be deleted", query)
+    return this.query("remove", "Error deleting couchDB document", {
+      json: doc,
+    })
+  }
+}
+
+export default {
+  schema: SCHEMA,
+  integration: CouchDBIntegration,
 }

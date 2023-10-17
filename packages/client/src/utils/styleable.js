@@ -25,11 +25,17 @@ export const styleable = (node, styles = {}) => {
 
   // Creates event listeners and applies initial styles
   const setupStyles = (newStyles = {}) => {
+    node.classList.add(`${newStyles.id}-dom`)
+
     let baseStyles = {}
     if (newStyles.empty) {
-      baseStyles.border = "2px dashed var(--spectrum-global-color-gray-600)"
       baseStyles.padding = "var(--spacing-l)"
       baseStyles.overflow = "hidden"
+      if (newStyles.selected) {
+        baseStyles.border = "2px solid transparent"
+      } else {
+        baseStyles.border = "2px dashed var(--spectrum-global-color-gray-400)"
+      }
     }
 
     const componentId = newStyles.id

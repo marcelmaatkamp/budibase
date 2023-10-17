@@ -1,12 +1,14 @@
 <script>
   import { getContext } from "svelte"
   const multilevel = getContext("sidenav-type")
+  import Badge from "../Badge/Badge.svelte"
   export let href = ""
   export let external = false
   export let heading = ""
   export let icon = ""
   export let selected = false
   export let disabled = false
+  export let badge = ""
 </script>
 
 <li
@@ -36,10 +38,22 @@
       </svg>
     {/if}
     <slot />
+    {#if badge}
+      <div class="badge">
+        <Badge active size="S">{badge}</Badge>
+      </div>
+    {/if}
   </a>
+
   {#if multilevel && $$slots.subnav}
     <ul class="spectrum-SideNav">
       <slot name="subnav" />
     </ul>
   {/if}
 </li>
+
+<style>
+  .badge {
+    margin-left: 10px;
+  }
+</style>

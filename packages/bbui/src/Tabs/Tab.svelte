@@ -3,10 +3,11 @@
   import Portal from "svelte-portal"
   export let title
   export let icon = ""
+  export let id
 
   const dispatch = createEventDispatcher()
-  const selected = getContext("tab")
-  let tab
+  let selected = getContext("tab")
+  let tab_internal
   let tabInfo
 
   const setTabInfo = () => {
@@ -16,8 +17,8 @@
     // We just need to get this off the main thread to fix this, by using
     // a 0ms timeout.
     setTimeout(() => {
-      tabInfo = tab.getBoundingClientRect()
-      if ($selected.title === title) {
+      tabInfo = tab_internal?.getBoundingClientRect()
+      if (tabInfo && $selected.title === title) {
         $selected.info = tabInfo
       }
     }, 0)
@@ -27,14 +28,28 @@
     setTabInfo()
   })
 
+  //Ensure that the underline is in the correct location
+  $: {
+    if ($selected.title === title && tab_internal) {
+      if ($selected.info?.left !== tab_internal.getBoundingClientRect().left) {
+        setTabInfo()
+      }
+    }
+  }
+
   const onClick = () => {
-    $selected = { ...$selected, title, info: tab.getBoundingClientRect() }
+    $selected = {
+      ...$selected,
+      title,
+      info: tab_internal.getBoundingClientRect(),
+    }
     dispatch("click")
   }
 </script>
 
 <div
-  bind:this={tab}
+  {id}
+  bind:this={tab_internal}
   on:click={onClick}
   class:is-selected={$selected.title === title}
   class="spectrum-Tabs-item"
@@ -62,5 +77,12 @@
 <style>
   .emphasized {
     color: var(--spectrum-global-color-blue-600);
+  }
+  .spectrum-Tabs-item {
+    color: var(--spectrum-global-color-gray-600);
+  }
+  .spectrum-Tabs-item.is-selected,
+  .spectrum-Tabs-item:hover {
+    color: var(--spectrum-global-color-gray-900);
   }
 </style>

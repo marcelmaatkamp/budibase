@@ -8,9 +8,9 @@
 
 To install oracle express edition simply run `docker-compose up`
 
-- A single instance pluggable database (PDB) will be created named `xepdb`
+- A single instance pluggable database (PDB) will be created named `xepdb1`
 - The default password is configured in the compose file as `oracle`
-  - The `system`, `sys` and `pdbadmin` users all share this password
+  - The `system` and `pdbadmin` users share this password
 
 ## Instant Client 
 
@@ -84,7 +84,7 @@ The `HR` schema is populated with dummy data by default in oracle for testing pu
 To connect to the HR schema first update the user password and unlock the account by performing
 ```sql
 ALTER USER hr ACCOUNT UNLOCK;
-ALTER USER hr IDENTIFIED BY hr
+ALTER USER hr IDENTIFIED BY hr;
 ```
 You should now be able to connect to the hr schema using the credentials hr/hr
 

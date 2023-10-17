@@ -1,8 +1,9 @@
 <script>
-  import { datasources } from "stores/backend"
+  import { get } from "svelte/store"
+  import { datasources, integrations } from "stores/backend"
   import { notifications } from "@budibase/bbui"
   import { Input, ModalContent, Modal } from "@budibase/bbui"
-  import analytics, { Events } from "analytics"
+  import { integrationForDatasource } from "stores/selectors"
 
   let error = ""
   let modal
@@ -33,9 +34,11 @@
       ...datasource,
       name,
     }
-    await datasources.save(updatedDatasource)
+    await datasources.update({
+      datasource: updatedDatasource,
+      integration: integrationForDatasource(get(integrations), datasource),
+    })
     notifications.success(`Datasource ${name} updated successfully.`)
-    analytics.captureEvent(Events.DATASOURCE.UPDATED, updatedDatasource)
     hide()
   }
 </script>
@@ -49,7 +52,6 @@
     disabled={error || !name || !datasource?.type}
   >
     <Input
-      data-cy="datasource-name-input"
       label="Datasource Name"
       on:input={checkValid}
       bind:value={name}

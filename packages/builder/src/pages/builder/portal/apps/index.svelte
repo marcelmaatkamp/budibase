@@ -3,46 +3,58 @@
     Heading,
     Layout,
     Button,
-    ActionButton,
-    ActionGroup,
-    ButtonGroup,
-    Input,
     Select,
     Modal,
     Page,
     notifications,
+    Notification,
+    Body,
     Search,
   } from "@budibase/bbui"
+  import Spinner from "components/common/Spinner.svelte"
   import CreateAppModal from "components/start/CreateAppModal.svelte"
-  import UpdateAppModal from "components/start/UpdateAppModal.svelte"
-  import { del } from "builderStore/api"
+  import AppLimitModal from "components/portal/licensing/AppLimitModal.svelte"
+  import AccountLockedModal from "components/portal/licensing/AccountLockedModal.svelte"
+  import { sdk } from "@budibase/shared-core"
+
+  import { store, automationStore } from "builderStore"
+  import { API } from "api"
   import { onMount } from "svelte"
-  import { apps, auth, admin } from "stores/portal"
-  import download from "downloadjs"
+  import { apps, auth, admin, licensing, environment } from "stores/portal"
   import { goto } from "@roxi/routify"
-  import ConfirmDialog from "components/common/ConfirmDialog.svelte"
-  import AppCard from "components/start/AppCard.svelte"
   import AppRow from "components/start/AppRow.svelte"
   import { AppStatus } from "constants"
+  import Logo from "assets/bb-space-man.svg"
 
-  let layout = "grid"
   let sortBy = "name"
   let template
-  let selectedApp
   let creationModal
-  let updatingModal
-  let deletionModal
-  let unpublishModal
-  let creatingApp = false
-  let loaded = false
+  let appLimitModal
+  let accountLockedModal
   let searchTerm = ""
-  let cloud = $admin.cloud
-  let appName = ""
+  let creatingFromTemplate = false
+  let automationErrors
+  let accessFilterList = null
 
+  $: welcomeHeader = `Welcome ${$auth?.user?.firstName || "back"}`
   $: enrichedApps = enrichApps($apps, $auth.user, sortBy)
-  $: filteredApps = enrichedApps.filter(app =>
-    app?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+  $: filteredApps = enrichedApps.filter(
+    app =>
+      (searchTerm
+        ? app?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+        : true) &&
+      (accessFilterList !== null
+        ? accessFilterList?.includes(
+            `${app?.type}_${app?.tenantId}_${app?.appId}`
+          )
+        : true)
   )
+  $: automationErrors = getAutomationErrors(enrichedApps)
+  $: isOwner = $auth.accountPortalAccess && $admin.cloud
+
+  const usersLimitLockAction = $licensing?.errUserLimit
+    ? () => accountLockedModal.show()
+    : null
 
   const enrichApps = (apps, user, sortBy) => {
     const enrichedApps = apps.map(app => ({
@@ -72,119 +84,93 @@
     }
   }
 
-  const initiateAppCreation = () => {
-    creationModal.show()
-    creatingApp = true
+  const getAutomationErrors = apps => {
+    const automationErrors = {}
+    for (let app of apps) {
+      if (app.automationErrors) {
+        if (errorCount(app.automationErrors) > 0) {
+          automationErrors[app.devId] = app.automationErrors
+        }
+      }
+    }
+    return automationErrors
   }
 
-  const initiateAppsExport = () => {
-    try {
-      download(`/api/cloud/export`)
-      notifications.success("Apps exported successfully")
-    } catch (err) {
-      notifications.error(`Error exporting apps: ${err}`)
+  const goToAutomationError = appId => {
+    const params = new URLSearchParams({
+      open: "error",
+    })
+    $goto(
+      `/builder/app/${appId}/settings/automation-history?${params.toString()}`
+    )
+  }
+
+  const errorCount = errors => {
+    return Object.values(errors).reduce((acc, next) => acc + next.length, 0)
+  }
+
+  const automationErrorMessage = appId => {
+    const app = enrichedApps.find(app => app.devId === appId)
+    const errors = automationErrors[appId]
+    return `${app.name} - Automation error (${errorCount(errors)})`
+  }
+
+  const initiateAppCreation = async () => {
+    if ($licensing?.usageMetrics?.apps >= 100) {
+      appLimitModal.show()
+    } else if ($apps?.length) {
+      $goto("/builder/portal/apps/create")
+    } else {
+      template = null
+      creationModal.show()
     }
   }
 
   const initiateAppImport = () => {
     template = { fromFile: true }
     creationModal.show()
-    creatingApp = true
+  }
+
+  const autoCreateApp = async () => {
+    try {
+      // Auto name app if has same name
+      const templateKey = template.key.split("/")[1]
+
+      let appName = templateKey.replace(/-/g, " ")
+      const appsWithSameName = $apps.filter(app =>
+        app.name?.startsWith(appName)
+      )
+      appName = `${appName} ${appsWithSameName.length + 1}`
+
+      // Create form data to create app
+      let data = new FormData()
+      data.append("name", appName)
+      data.append("useTemplate", true)
+      data.append("templateKey", template.key)
+
+      // Create App
+      const createdApp = await API.createApp(data)
+
+      // Select Correct Application/DB in prep for creating user
+      const pkg = await API.fetchAppPackage(createdApp.instance._id)
+      await store.actions.initialise(pkg)
+      await automationStore.actions.fetch()
+      // Update checklist - in case first app
+      await admin.init()
+
+      // Create user
+      await API.updateOwnMetadata({
+        roleId: "BASIC",
+      })
+      await auth.setInitInfo({})
+      $goto(`/builder/app/${createdApp.instance._id}`)
+    } catch (error) {
+      notifications.error("Error creating app")
+    }
   }
 
   const stopAppCreation = () => {
     template = null
-    creatingApp = false
-  }
-
-  const viewApp = app => {
-    const id = app.deployed ? app.prodId : app.devId
-    window.open(`/${id}`, "_blank")
-  }
-
-  const editApp = app => {
-    if (app.lockedOther) {
-      notifications.error(
-        `App locked by ${app.lockedBy.email}. Please allow lock to expire or have them unlock this app.`
-      )
-      return
-    }
-    $goto(`../../app/${app.devId}`)
-  }
-
-  const exportApp = app => {
-    const id = app.deployed ? app.prodId : app.devId
-    const appName = encodeURIComponent(app.name)
-    window.location = `/api/backups/export?appId=${id}&appname=${appName}`
-  }
-
-  const unpublishApp = app => {
-    selectedApp = app
-    unpublishModal.show()
-  }
-
-  const confirmUnpublishApp = async () => {
-    if (!selectedApp) {
-      return
-    }
-    try {
-      const response = await del(
-        `/api/applications/${selectedApp.prodId}?unpublish=1`
-      )
-      if (response.status !== 200) {
-        const json = await response.json()
-        throw json.message
-      }
-      await apps.load()
-      notifications.success("App unpublished successfully")
-    } catch (err) {
-      notifications.error(`Error unpublishing app: ${err}`)
-    }
-  }
-
-  const deleteApp = app => {
-    selectedApp = app
-    deletionModal.show()
-  }
-
-  const confirmDeleteApp = async () => {
-    if (!selectedApp) {
-      return
-    }
-    try {
-      const response = await del(`/api/applications/${selectedApp?.devId}`)
-      if (response.status !== 200) {
-        const json = await response.json()
-        throw json.message
-      }
-      await apps.load()
-      // get checklist, just in case that was the last app
-      await admin.init()
-      notifications.success("App deleted successfully")
-    } catch (err) {
-      notifications.error(`Error deleting app: ${err}`)
-    }
-    selectedApp = null
-    appName = null
-  }
-
-  const updateApp = async app => {
-    selectedApp = app
-    updatingModal.show()
-  }
-
-  const releaseLock = async app => {
-    try {
-      const response = await del(`/api/dev/${app.devId}/lock`)
-      if (response.status !== 200) {
-        const json = await response.json()
-        throw json.message
-      }
-      await apps.load()
-      notifications.success("Lock released successfully")
-    } catch (err) {
-      notifications.error(`Error releasing lock: ${err}`)
-    }
   }
 
   function createAppFromTemplateUrl(templateKey) {
@@ -194,98 +180,134 @@
       template = {
         key: templateKey,
       }
-      initiateAppCreation()
+      autoCreateApp()
     } else {
       notifications.error("Your Template URL is invalid. Please try another.")
     }
   }
 
   onMount(async () => {
-    await apps.load()
-    loaded = true
-    // if the portal is loaded from an external URL with a template param
-    const initInfo = await auth.getInitInfo()
-    if (initInfo.init_template) {
-      createAppFromTemplateUrl(initInfo.init_template)
+    try {
+      await environment.loadVariables()
+      // If the portal is loaded from an external URL with a template param
+      const initInfo = await auth.getInitInfo()
+      if (initInfo?.init_template) {
+        creatingFromTemplate = true
+        createAppFromTemplateUrl(initInfo.init_template)
+      }
+      if (usersLimitLockAction) {
+        usersLimitLockAction()
+      }
+    } catch (error) {
+      notifications.error("Error getting init info")
     }
   })
 </script>
 
-<Page wide>
-  {#if loaded && enrichedApps.length}
-    <Layout noPadding>
-      <div class="title">
-        <Heading>Apps</Heading>
-        <ButtonGroup>
-          {#if cloud}
-            <Button secondary on:click={initiateAppsExport}>Export apps</Button>
-          {/if}
-          <Button secondary on:click={initiateAppImport}>Import app</Button>
-          <Button cta on:click={initiateAppCreation}>Create app</Button>
-        </ButtonGroup>
+<Page>
+  <Layout noPadding gap="L">
+    {#each Object.keys(automationErrors || {}) as appId}
+      <Notification
+        wide
+        dismissable
+        action={() => goToAutomationError(appId)}
+        type="error"
+        icon="Alert"
+        actionMessage={errorCount(automationErrors[appId]) > 1
+          ? "View errors"
+          : "View error"}
+        on:dismiss={async () => {
+          await automationStore.actions.clearLogErrors({ appId })
+          await apps.load()
+        }}
+        message={automationErrorMessage(appId)}
+      />
+    {/each}
+    <div class="title">
+      <div class="welcome">
+        <Layout noPadding gap="XS">
+          <Heading size="L">{welcomeHeader}</Heading>
+          <Body size="M">
+            Below you'll find the list of apps that you have access to
+          </Body>
+        </Layout>
       </div>
-      <div class="filter">
-        <div class="select">
-          <Select
-            autoWidth
-            bind:value={sortBy}
-            placeholder={null}
-            options={[
-              { label: "Sort by name", value: "name" },
-              { label: "Sort by recently updated", value: "updated" },
-              { label: "Sort by status", value: "status" },
-            ]}
-          />
-          <div class="desktop-search">
-            <Search placeholder="Search" bind:value={searchTerm} />
-          </div>
-        </div>
-        <ActionGroup>
-          <ActionButton
-            on:click={() => (layout = "grid")}
-            selected={layout === "grid"}
-            quiet
-            icon="ClassicGridView"
-          />
-          <ActionButton
-            on:click={() => (layout = "table")}
-            selected={layout === "table"}
-            quiet
-            icon="ViewRow"
-          />
-        </ActionGroup>
-      </div>
-      <div class="mobile-search">
-        <Search placeholder="Search" bind:value={searchTerm} />
-      </div>
-      <div
-        class:appGrid={layout === "grid"}
-        class:appTable={layout === "table"}
-      >
-        {#each filteredApps as app (app.appId)}
-          <svelte:component
-            this={layout === "grid" ? AppCard : AppRow}
-            {releaseLock}
-            {app}
-            {unpublishApp}
-            {viewApp}
-            {editApp}
-            {exportApp}
-            {deleteApp}
-            {updateApp}
-          />
-        {/each}
-      </div>
-    </Layout>
-  {/if}
-  {#if !enrichedApps.length && !creatingApp && loaded}
-    <div class="empty-wrapper">
-      <Modal inline>
-        <CreateAppModal {template} inline={true} />
-      </Modal>
     </div>
-  {/if}
+
+    {#if enrichedApps.length}
+      <Layout noPadding gap="L">
+        <div class="title">
+          {#if $auth.user && sdk.users.isGlobalBuilder($auth.user)}
+            <div class="buttons">
+              <Button
+                size="M"
+                cta
+                on:click={usersLimitLockAction || initiateAppCreation}
+              >
+                Create new app
+              </Button>
+              {#if $apps?.length > 0 && !$admin.offlineMode}
+                <Button
+                  size="M"
+                  secondary
+                  on:click={usersLimitLockAction ||
+                    $goto("/builder/portal/apps/templates")}
+                >
+                  View templates
+                </Button>
+              {/if}
+              {#if !$apps?.length}
+                <Button
+                  size="L"
+                  quiet
+                  secondary
+                  on:click={usersLimitLockAction || initiateAppImport}
+                >
+                  Import app
+                </Button>
+              {/if}
+            </div>
+          {/if}
+          {#if enrichedApps.length > 1}
+            <div class="app-actions">
+              <Select
+                autoWidth
+                bind:value={sortBy}
+                placeholder={null}
+                options={[
+                  { label: "Sort by name", value: "name" },
+                  { label: "Sort by recently updated", value: "updated" },
+                  { label: "Sort by status", value: "status" },
+                ]}
+              />
+              <Search placeholder="Search" bind:value={searchTerm} />
+            </div>
+          {/if}
+        </div>
+
+        <div class="app-table">
+          {#each filteredApps as app (app.appId)}
+            <AppRow {app} lockedAction={usersLimitLockAction} />
+          {/each}
+        </div>
+      </Layout>
+    {:else}
+      <div class="no-apps">
+        <img class="spaceman" alt="spaceman" src={Logo} width="100px" />
+        <Body weight="700">You haven't been given access to any apps yet</Body>
+      </div>
+    {/if}
+
+    {#if creatingFromTemplate}
+      <div class="empty-wrapper">
+        <img class="img-logo img-size" alt="logo" src={Logo} />
+        <p>Creating your Budibase app from your selected template...</p>
+        <Spinner size="10" />
+      </div>
+    {/if}
+  </Layout>
 </Page>
+
 <Modal
   bind:this={creationModal}
   padding={false}
@@ -294,88 +316,51 @@
 >
   <CreateAppModal {template} />
 </Modal>
-<ConfirmDialog
-  bind:this={deletionModal}
-  title="Confirm deletion"
-  okText="Delete app"
-  onOk={confirmDeleteApp}
-  onCancel={() => (appName = null)}
-  disabled={appName !== selectedApp?.name}
->
-  Are you sure you want to delete the app <b>{selectedApp?.name}</b>?
 
-  <p>Please enter the app name below to confirm.</p>
-  <Input
-    bind:value={appName}
-    data-cy="delete-app-confirmation"
-    placeholder={selectedApp?.name}
-  />
-</ConfirmDialog>
-<ConfirmDialog
-  bind:this={unpublishModal}
-  title="Confirm unpublish"
-  okText="Unpublish app"
-  onOk={confirmUnpublishApp}
->
-  Are you sure you want to unpublish the app <b>{selectedApp?.name}</b>?
-</ConfirmDialog>
-
-<UpdateAppModal app={selectedApp} bind:this={updatingModal} />
+<AppLimitModal bind:this={appLimitModal} />
+<AccountLockedModal
+  bind:this={accountLockedModal}
+  onConfirm={() =>
+    isOwner ? $licensing.goToUpgradePage() : $licensing.goToPricingPage()}
+/>
 
 <style>
-  .title,
-  .filter {
+  .title {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    gap: 10px;
+    gap: var(--spacing-xl);
+    flex-wrap: wrap;
   }
-
-  @media only screen and (max-width: 560px) {
-    .title {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-  }
-
-  .select {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-gap: 10px;
-  }
-  .filter :global(.spectrum-ActionGroup) {
-    flex-wrap: nowrap;
-  }
-  .mobile-search {
-    display: none;
-  }
-
-  .appGrid {
-    display: grid;
-    grid-gap: 50px;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  }
-  .appTable {
-    display: grid;
-    grid-template-rows: auto;
-    grid-template-columns: 1fr 1fr 1fr 1fr auto;
+  .buttons {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
     align-items: center;
+    gap: var(--spacing-xl);
+    flex-wrap: wrap;
   }
-  .appTable :global(> div) {
-    height: 70px;
-    display: grid;
+  .app-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
     align-items: center;
-    grid-gap: var(--spacing-xl);
-    grid-template-columns: auto 1fr;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: 0 var(--spacing-s);
+    gap: var(--spacing-xl);
+    flex-wrap: wrap;
   }
-  .appTable :global(> div) {
-    border-bottom: var(--border-light);
+  .app-actions :global(.spectrum-Textfield) {
+    max-width: 180px;
   }
+
+  .app-table {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: var(--spacing-xl);
+  }
+
   .empty-wrapper {
     flex: 1 1 auto;
     height: 100%;
@@ -384,16 +369,40 @@
     justify-content: center;
     align-items: center;
   }
+  .img-size {
+    width: 160px;
+    height: 160px;
+  }
 
-  @media (max-width: 640px) {
-    .appTable {
-      grid-template-columns: 1fr auto;
-    }
-    .desktop-search {
+  .no-apps {
+    background-color: var(--spectrum-global-color-gray-100);
+    padding: calc(var(--spacing-xl) * 2);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+  }
+
+  @media (max-width: 1000px) {
+    .img-logo {
       display: none;
     }
-    .mobile-search {
-      display: block;
+  }
+  @media (max-width: 640px) {
+    .app-actions {
+      margin-top: var(--spacing-xl);
+      margin-bottom: calc(-1 * var(--spacing-m));
+    }
+    .app-actions :global(.spectrum-Textfield) {
+      max-width: none;
+    }
+    /*  Hide download apps icon */
+    .app-actions :global(> .spectrum-Icon) {
+      display: none;
+    }
+    .app-actions > :global(*) {
+      flex: 1 1 auto;
     }
   }
 </style>

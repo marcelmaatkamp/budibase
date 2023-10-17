@@ -1,13 +1,13 @@
 <script>
-  import groupBy from "lodash/fp/groupBy"
   import {
-    Search,
-    TextArea,
     DrawerContent,
     Tabs,
     Tab,
     Body,
-    Layout,
+    Button,
+    ActionButton,
+    Heading,
+    Icon,
   } from "@budibase/bbui"
   import { createEventDispatcher, onMount } from "svelte"
   import {
@@ -15,69 +15,85 @@
     decodeJSBinding,
     encodeJSBinding,
   } from "@budibase/string-templates"
-  import { readableToRuntimeBinding } from "builderStore/dataBinding"
-  import { handlebarsCompletions } from "constants/completions"
-  import { addHBSBinding, addJSBinding } from "./utils"
-  import CodeMirrorEditor from "components/common/CodeMirrorEditor.svelte"
+  import {
+    readableToRuntimeBinding,
+    runtimeToReadableBinding,
+  } from "builderStore/dataBinding"
+
+  import { convertToJS } from "@budibase/string-templates"
+  import { admin } from "stores/portal"
+  import CodeEditor from "../CodeEditor/CodeEditor.svelte"
+  import {
+    getHelperCompletions,
+    jsAutocomplete,
+    hbAutocomplete,
+    EditorModes,
+    bindingsToCompletions,
+    hbInsert,
+    jsInsert,
+  } from "../CodeEditor"
+  import { getContext } from "svelte"
+  import BindingPicker from "./BindingPicker.svelte"
 
   const dispatch = createEventDispatcher()
 
   export let bindings
+  // jsValue/hbsValue are the state of the value that is being built
+  // within this binding panel - the value should not be updated until
+  // the binding panel is saved. This is the default value of the
+  // expression when the binding panel is opened, but shouldn't be updated.
   export let value = ""
   export let valid
   export let allowJS = false
+  export let allowHelpers = true
 
-  let helpers = handlebarsCompletions()
+  const drawerActions = getContext("drawer-actions")
+  const bindingDrawerActions = getContext("binding-drawer-actions")
+
   let getCaretPosition
-  let search = ""
-  let initialValueJS = value?.startsWith("{{ js ")
-  let mode = initialValueJS ? "JavaScript" : "Handlebars"
+  let insertAtPos
+  let initialValueJS = typeof value === "string" && value?.startsWith("{{ js ")
+  let mode = initialValueJS ? "JavaScript" : "Text"
   let jsValue = initialValueJS ? value : null
   let hbsValue = initialValueJS ? null : value
+  let sidebar = true
+  let targetMode = null
 
   $: usingJS = mode === "JavaScript"
-  $: searchRgx = new RegExp(search, "ig")
-  $: categories = Object.entries(groupBy("category", bindings))
-  $: filteredCategories = categories
-    .map(([name, categoryBindings]) => ({
-      name,
-      bindings: categoryBindings?.filter(binding => {
-        return binding.readableBinding.match(searchRgx)
-      }),
-    }))
-    .filter(category => category.bindings?.length > 0)
-  $: filteredHelpers = helpers?.filter(helper => {
-    return helper.label.match(searchRgx) || helper.description.match(searchRgx)
-  })
-  $: codeMirrorHints = bindings?.map(x => `$("${x.readableBinding}")`)
+  $: editorMode = mode == "JavaScript" ? EditorModes.JS : EditorModes.Handlebars
+  $: bindingCompletions = bindingsToCompletions(bindings, editorMode)
 
-  const updateValue = value => {
-    valid = isValid(readableToRuntimeBinding(bindings, value))
+  const updateValue = val => {
+    valid = isValid(readableToRuntimeBinding(bindings, val))
     if (valid) {
-      dispatch("change", value)
+      dispatch("change", val)
     }
   }
 
-  // Adds a HBS helper to the expression
-  const addHelper = helper => {
-    hbsValue = addHBSBinding(value, getCaretPosition(), helper.text)
-    updateValue(hbsValue)
+  // Adds a JS/HBS helper to the expression
+  const onSelectHelper = (helper, js) => {
+    const pos = getCaretPosition()
+    const { start, end } = pos
+    if (js) {
+      let js = decodeJSBinding(jsValue)
+      const insertVal = jsInsert(js, start, end, helper.text, { helper: true })
+      insertAtPos({ start, end, value: insertVal })
+    } else {
+      const insertVal = hbInsert(hbsValue, start, end, helper.text)
+      insertAtPos({ start, end, value: insertVal })
+    }
   }
 
   // Adds a data binding to the expression
-  const addBinding = binding => {
-    if (usingJS) {
+  const onSelectBinding = (binding, { forceJS } = {}) => {
+    const { start, end } = getCaretPosition()
+    if (usingJS || forceJS) {
       let js = decodeJSBinding(jsValue)
-      js = addJSBinding(js, getCaretPosition(), binding.readableBinding)
-      jsValue = encodeJSBinding(js)
-      updateValue(jsValue)
+      const insertVal = jsInsert(js, start, end, binding.readableBinding)
+      insertAtPos({ start, end, value: insertVal })
     } else {
-      hbsValue = addHBSBinding(
-        hbsValue,
-        getCaretPosition(),
-        binding.readableBinding
-      )
-      updateValue(hbsValue)
+      const insertVal = hbInsert(hbsValue, start, end, binding.readableBinding)
+      insertAtPos({ start, end, value: insertVal })
     }
   }
 
@@ -96,209 +112,402 @@
     updateValue(jsValue)
   }
 
+  const switchMode = () => {
+    if (targetMode == "Text") {
+      jsValue = null
+      updateValue(jsValue)
+    } else {
+      hbsValue = null
+      updateValue(hbsValue)
+    }
+    mode = targetMode + ""
+    targetMode = null
+  }
+
+  const convert = () => {
+    const runtime = readableToRuntimeBinding(bindings, hbsValue)
+    const runtimeJs = encodeJSBinding(convertToJS(runtime))
+    jsValue = runtimeToReadableBinding(bindings, runtimeJs)
+    hbsValue = null
+    mode = "JavaScript"
+    onSelectBinding("", { forceJS: true })
+  }
+
   onMount(() => {
     valid = isValid(readableToRuntimeBinding(bindings, value))
   })
 </script>
 
-<DrawerContent>
-  <svelte:fragment slot="sidebar">
-    <div class="container">
-      <section>
-        <div class="heading">Search</div>
-        <Search placeholder="Search" bind:value={search} />
-      </section>
-      {#each filteredCategories as category}
-        {#if category.bindings?.length}
-          <section>
-            <div class="heading">{category.name}</div>
-            <ul>
-              {#each category.bindings as binding}
-                <li on:click={() => addBinding(binding)}>
-                  <span class="binding__label">{binding.readableBinding}</span>
-                  {#if binding.type}
-                    <span class="binding__type">{binding.type}</span>
-                  {/if}
-                  {#if binding.description}
-                    <br />
-                    <div class="binding__description">
-                      {binding.description || ""}
+<span class="binding-drawer">
+  <DrawerContent>
+    <div class="main">
+      <Tabs
+        selected={mode}
+        on:select={onChangeMode}
+        beforeSwitch={selectedMode => {
+          if (selectedMode == mode) {
+            return true
+          }
+
+          //Get the current mode value
+          const editorValue = usingJS ? decodeJSBinding(jsValue) : hbsValue
+
+          if (editorValue) {
+            targetMode = selectedMode
+            return false
+          }
+          return true
+        }}
+      >
+        <Tab title="Text">
+          <div class="main-content" class:binding-panel={sidebar}>
+            <div class="editor">
+              <div class="overlay-wrap">
+                {#if targetMode}
+                  <div class="mode-overlay">
+                    <div class="prompt-body">
+                      <Heading size="S">
+                        {`Switch to ${targetMode}?`}
+                      </Heading>
+                      <Body>This will discard anything in your binding</Body>
+                      <div class="switch-actions">
+                        <Button
+                          secondary
+                          size="S"
+                          on:click={() => {
+                            targetMode = null
+                          }}
+                        >
+                          No - keep text
+                        </Button>
+                        <Button cta size="S" on:click={switchMode}>
+                          Yes - discard text
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+                <CodeEditor
+                  value={hbsValue}
+                  on:change={onChangeHBSValue}
+                  bind:getCaretPosition
+                  bind:insertAtPos
+                  completions={[
+                    hbAutocomplete([
+                      ...bindingCompletions,
+                      ...getHelperCompletions(editorMode),
+                    ]),
+                  ]}
+                  placeholder=""
+                  height="100%"
+                />
+              </div>
+              <div class="binding-footer">
+                <div class="messaging">
+                  {#if !valid}
+                    <div class="syntax-error">
+                      Current Handlebars syntax is invalid, please check the
+                      guide
+                      <a href="https://handlebarsjs.com/guide/" target="_blank"
+                        >here</a
+                      >
+                      for more details.
+                    </div>
+                  {:else}
+                    <Icon name="FlashOn" />
+                    <div class="messaging-wrap">
+                      <div>
+                        Add available bindings by typing &#123;&#123; or use the
+                        menu on the right
+                      </div>
                     </div>
                   {/if}
-                </li>
-              {/each}
-            </ul>
-          </section>
-        {/if}
-      {/each}
-      {#if filteredHelpers?.length && !usingJS}
-        <section>
-          <div class="heading">Helpers</div>
-          <ul>
-            {#each filteredHelpers as helper}
-              <li on:click={() => addHelper(helper)}>
-                <div class="helper">
-                  <div class="helper__name">{helper.displayText}</div>
-                  <div class="helper__description">
-                    {@html helper.description}
-                  </div>
-                  <pre class="helper__example">{helper.example || ''}</pre>
                 </div>
-              </li>
-            {/each}
-          </ul>
-        </section>
-      {/if}
-    </div>
-  </svelte:fragment>
-  <div class="main">
-    <Tabs selected={mode} on:select={onChangeMode}>
-      <Tab title="Handlebars">
-        <div class="main-content">
-          <TextArea
-            bind:getCaretPosition
-            value={hbsValue}
-            on:change={onChangeHBSValue}
-            placeholder="Add text, or click the objects on the left to add them to the textbox."
-          />
-          {#if !valid}
-            <p class="syntax-error">
-              Current Handlebars syntax is invalid, please check the guide
-              <a href="https://handlebarsjs.com/guide/">here</a>
-              for more details.
-            </p>
-          {/if}
-        </div>
-      </Tab>
-      {#if allowJS}
-        <Tab title="JavaScript">
-          <div class="main-content">
-            <Layout noPadding gap="XS">
-              <CodeMirrorEditor
-                bind:getCaretPosition
-                height={200}
-                value={decodeJSBinding(jsValue)}
-                on:change={onChangeJSValue}
-                hints={codeMirrorHints}
-              />
-              <Body size="S">
-                JavaScript expressions are executed as functions, so ensure that
-                your expression returns a value.
-              </Body>
-            </Layout>
+                <div class="actions">
+                  {#if $admin.isDev && allowJS}
+                    <ActionButton
+                      secondary
+                      on:click={() => {
+                        convert()
+                        targetMode = null
+                      }}
+                    >
+                      Convert To JS
+                    </ActionButton>
+                  {/if}
+                  <ActionButton
+                    secondary
+                    icon={sidebar ? "RailRightClose" : "RailRightOpen"}
+                    on:click={() => {
+                      sidebar = !sidebar
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {#if sidebar}
+              <div class="binding-picker">
+                <BindingPicker
+                  {bindings}
+                  {allowHelpers}
+                  addHelper={onSelectHelper}
+                  addBinding={onSelectBinding}
+                  mode={editorMode}
+                />
+              </div>
+            {/if}
           </div>
         </Tab>
-      {/if}
-    </Tabs>
-  </div>
-</DrawerContent>
+        {#if allowJS}
+          <Tab title="JavaScript">
+            <div class="main-content" class:binding-panel={sidebar}>
+              <div class="editor">
+                <div class="overlay-wrap">
+                  {#if targetMode}
+                    <div class="mode-overlay">
+                      <div class="prompt-body">
+                        <Heading size="S">
+                          {`Switch to ${targetMode}?`}
+                        </Heading>
+                        <Body>This will discard anything in your binding</Body>
+                        <div class="switch-actions">
+                          <Button
+                            secondary
+                            size="S"
+                            on:click={() => {
+                              targetMode = null
+                            }}
+                          >
+                            No - keep javascript
+                          </Button>
+                          <Button cta size="S" on:click={switchMode}>
+                            Yes - discard javascript
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  {/if}
+
+                  <CodeEditor
+                    value={decodeJSBinding(jsValue)}
+                    on:change={onChangeJSValue}
+                    completions={[
+                      jsAutocomplete([
+                        ...bindingCompletions,
+                        ...getHelperCompletions(editorMode),
+                      ]),
+                    ]}
+                    mode={EditorModes.JS}
+                    bind:getCaretPosition
+                    bind:insertAtPos
+                    height="100%"
+                  />
+                </div>
+                <div class="binding-footer">
+                  <div class="messaging">
+                    <Icon name="FlashOn" />
+                    <div class="messaging-wrap">
+                      <div>
+                        Add available bindings by typing $ or use the menu on
+                        the right
+                      </div>
+                    </div>
+                  </div>
+                  <div class="actions">
+                    <ActionButton
+                      secondary
+                      icon={sidebar ? "RailRightClose" : "RailRightOpen"}
+                      on:click={() => {
+                        sidebar = !sidebar
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {#if sidebar}
+                <div class="binding-picker">
+                  <BindingPicker
+                    {bindings}
+                    {allowHelpers}
+                    addHelper={onSelectHelper}
+                    addBinding={onSelectBinding}
+                    mode={editorMode}
+                  />
+                </div>
+              {/if}
+            </div>
+          </Tab>
+        {/if}
+        <div class="drawer-actions">
+          {#if typeof drawerActions?.hide === "function" && drawerActions?.headless}
+            <Button
+              secondary
+              quiet
+              on:click={() => {
+                drawerActions.hide()
+              }}
+            >
+              Cancel
+            </Button>
+          {/if}
+          {#if typeof bindingDrawerActions?.save === "function" && drawerActions?.headless}
+            <Button
+              cta
+              disabled={!valid}
+              on:click={() => {
+                bindingDrawerActions.save()
+              }}
+            >
+              Save
+            </Button>
+          {/if}
+        </div>
+      </Tabs>
+    </div>
+  </DrawerContent>
+</span>
 
 <style>
+  .binding-drawer :global(.container > .main) {
+    overflow: hidden;
+    height: 100%;
+    padding: 0px;
+  }
+
+  .binding-drawer :global(.container > .main > .main) {
+    overflow: hidden;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .binding-drawer :global(.spectrum-Tabs-content) {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .binding-drawer :global(.spectrum-Tabs-content > div),
+  .binding-drawer :global(.spectrum-Tabs-content > div > div),
+  .binding-drawer :global(.spectrum-Tabs-content .main-content) {
+    height: 100%;
+  }
+
+  .binding-drawer .main-content {
+    grid-template-rows: unset;
+  }
+
+  .messaging {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-m);
+    min-width: 0;
+    flex: 1;
+  }
+  .messaging-wrap {
+    overflow: hidden;
+  }
+  .messaging-wrap > div {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
   .main :global(textarea) {
     min-height: 202px !important;
   }
-  .main {
-    margin: calc(-1 * var(--spacing-xl));
-  }
+
   .main-content {
     padding: var(--spacing-s) var(--spacing-xl);
   }
 
-  .container {
-    margin: calc(-1 * var(--spacing-xl));
-  }
-  .heading {
-    font-size: var(--font-size-s);
-    font-weight: 600;
-    text-transform: uppercase;
-    color: var(--spectrum-global-color-gray-600);
-    padding: var(--spacing-xl) 0 var(--spacing-m) 0;
-  }
-
-  section {
-    padding: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
-  }
-  section:not(:first-child) {
-    border-top: var(--border-light);
-  }
-  ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  li {
-    font-size: var(--font-size-s);
-    padding: var(--spacing-m);
-    border-radius: 4px;
-    border: var(--border-light);
-    transition: background-color 130ms ease-in-out, color 130ms ease-in-out,
-      border-color 130ms ease-in-out;
-  }
-  li:not(:last-of-type) {
-    margin-bottom: var(--spacing-s);
-  }
-  li :global(*) {
-    transition: color 130ms ease-in-out;
-  }
-  li:hover {
-    color: var(--spectrum-global-color-gray-900);
-    background-color: var(--spectrum-global-color-gray-50);
-    border-color: var(--spectrum-global-color-gray-500);
-    cursor: pointer;
-  }
-  li:hover :global(*) {
-    color: var(--spectrum-global-color-gray-900) !important;
-  }
-
-  .binding__label {
-    font-weight: 600;
-    text-transform: capitalize;
-  }
-  .binding__description {
-    color: var(--spectrum-global-color-gray-700);
-    margin: 0.5rem 0 0 0;
-    white-space: normal;
-  }
-  .binding__type {
-    font-family: monospace;
-    background-color: var(--spectrum-global-color-gray-200);
-    border-radius: var(--border-radius-s);
-    padding: 2px 4px;
-    margin-left: 2px;
-    font-weight: 600;
-  }
-
-  .helper {
+  .main :global(.spectrum-Tabs div.drawer-actions) {
     display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: flex-start;
-    gap: var(--spacing-xs);
+    gap: var(--spacing-m);
+    margin-left: auto;
   }
-  .helper__name {
-    font-weight: bold;
+
+  .main :global(.spectrum-Tabs-content),
+  .main :global(.spectrum-Tabs-content .main-content) {
+    margin-top: 0px;
+    padding: 0px;
   }
-  .helper__description,
-  .helper__description :global(*) {
-    color: var(--spectrum-global-color-gray-700);
-  }
-  .helper__example {
-    white-space: normal;
-    margin: 0.5rem 0 0 0;
-    font-weight: 700;
-  }
-  .helper__description :global(p) {
-    margin: 0;
+
+  .main :global(.spectrum-Tabs) {
+    display: flex;
   }
 
   .syntax-error {
-    padding-top: var(--spacing-m);
     color: var(--red);
     font-size: 12px;
   }
   .syntax-error a {
     color: var(--red);
     text-decoration: underline;
+  }
+
+  .binding-footer {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+  }
+  .main-content {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 380px;
+  }
+  .main-content.binding-panel {
+    grid-template-columns: 1fr 320px;
+  }
+  .binding-picker {
+    border-left: 2px solid var(--border-light);
+    border-left: var(--border-light);
+    overflow: scroll;
+    height: 100%;
+  }
+  .editor {
+    padding: var(--spacing-xl);
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+    overflow: hidden;
+  }
+  .overlay-wrap {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+  }
+  .mode-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(
+      --spectrum-textfield-m-background-color,
+      var(--spectrum-global-color-gray-50)
+    );
+    border-radius: var(--border-radius-s);
+  }
+  .prompt-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-l);
+  }
+  .prompt-body .switch-actions {
+    display: flex;
+    gap: var(--spacing-l);
+  }
+
+  .binding-drawer :global(.code-editor),
+  .binding-drawer :global(.code-editor > div) {
+    height: 100%;
   }
 </style>

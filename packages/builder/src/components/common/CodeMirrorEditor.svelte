@@ -8,12 +8,18 @@
       name: "javascript",
       json: true,
     },
+    XML: {
+      name: "xml",
+    },
     SQL: {
       name: "sql",
     },
     Handlebars: {
       name: "handlebars",
       base: "text/html",
+    },
+    Text: {
+      name: "text/html",
     },
   }
 </script>
@@ -37,11 +43,12 @@
   let editor
 
   // Keep editor up to date with value
+  $: editor?.setOption("mode", mode)
   $: editor?.setValue(value || "")
 
   // Creates an instance of a code mirror editor
   async function createEditor(mode, value) {
-    if (!CodeMirror || !textarea || editor) {
+    if (!CodeMirror || !textarea) {
       return
     }
 
@@ -128,7 +135,7 @@
   div :global(.CodeMirror) {
     height: var(--code-mirror-height);
     min-height: var(--code-mirror-height);
-    font-family: monospace;
+    font-family: var(--font-mono);
     line-height: 1.3;
     border: var(--spectrum-alias-border-size-thin) solid;
     border-color: var(--spectrum-alias-border-color);
@@ -139,15 +146,18 @@
 
   /* Override default active line highlight colour in dark theme */
   div
-    :global(.CodeMirror-focused.cm-s-tomorrow-night-eighties
-      .CodeMirror-activeline-background) {
+    :global(
+      .CodeMirror-focused.cm-s-tomorrow-night-eighties
+        .CodeMirror-activeline-background
+    ) {
     background: rgba(255, 255, 255, 0.075);
   }
 
   /* Remove active line styling when not focused */
   div
-    :global(.CodeMirror:not(.CodeMirror-focused)
-      .CodeMirror-activeline-background) {
+    :global(
+      .CodeMirror:not(.CodeMirror-focused) .CodeMirror-activeline-background
+    ) {
     background: unset;
   }
 

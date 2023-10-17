@@ -15,6 +15,7 @@
   export let placeholder
   export let label
   export let allowJS = false
+  export let updateOnChange = true
 
   const dispatch = createEventDispatcher()
   let bindingModal
@@ -41,6 +42,7 @@
     value={isJS ? "(JavaScript function)" : readableValue}
     on:change={event => onChange(event.detail)}
     {placeholder}
+    {updateOnChange}
   />
   <div class="icon" on:click={bindingModal.show}>
     <Icon size="S" name="FlashOn" />
@@ -103,5 +105,9 @@
   .panel-wrapper {
     border: var(--border-light);
     border-radius: 4px;
+  }
+
+  .control :global(.spectrum-Textfield-input) {
+    padding-right: 40px;
   }
 </style>

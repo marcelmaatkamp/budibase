@@ -1,27 +1,39 @@
 <script>
-  import { ModalContent, Label, notifications, Body } from "@budibase/bbui"
-  import TableDataImport from "../../TableNavigator/TableDataImport.svelte"
-  import api from "builderStore/api"
+  import {
+    ModalContent,
+    Label,
+    notifications,
+    Body,
+    Layout,
+  } from "@budibase/bbui"
+  import TableDataImport from "../../TableNavigator/ExistingTableDataImport.svelte"
+  import { API } from "api"
   import { createEventDispatcher } from "svelte"
 
   const dispatch = createEventDispatcher()
 
   export let tableId
-  let dataImport
+  export let tableType
 
-  $: valid = dataImport?.csvString != null && dataImport?.valid
+  let rows = []
+  let allValid = false
+  let displayColumn = null
+  let identifierFields = []
 
   async function importData() {
-    const response = await api.post(`/api/tables/${tableId}/import`, {
-      dataImport,
-    })
-    if (response.status !== 200) {
-      const error = await response.text()
-      notifications.error(`Unable to import data - ${error}`)
-    } else {
-      notifications.success("Rows successfully imported.")
+    try {
+      await API.importTableData({
+        tableId,
+        rows,
+        identifierFields,
+      })
+      notifications.success("Rows successfully imported")
+    } catch (error) {
+      notifications.error("Unable to import data")
     }
-    dispatch("updaterows")
+
+    // Always refresh rows just to be sure
+    dispatch("importrows")
   }
 </script>
 
@@ -29,15 +41,21 @@
   title="Import Data"
   confirmText="Import"
   onConfirm={importData}
-  disabled={!valid}
+  disabled={!allValid}
 >
-  <Body
-    >Import rows to an existing table from a CSV. Only columns from the CSV
-    which exist in the table will be imported.</Body
-  >
-  <Label grey extraSmall>CSV to import</Label>
-  <TableDataImport bind:dataImport bind:existingTableId={tableId} />
+  <Body size="S">
+    Import rows to an existing table from a CSV or JSON file. Only columns from
+    the file which exist in the table will be imported.
+  </Body>
+  <Layout gap="XS" noPadding>
+    <Label grey extraSmall>CSV or JSON file to import</Label>
+    <TableDataImport
+      {tableId}
+      {tableType}
+      bind:rows
+      bind:allValid
+      bind:displayColumn
+      bind:identifierFields
+    />
+  </Layout>
 </ModalContent>
-
-<style>
-</style>

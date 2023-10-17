@@ -1,45 +1,39 @@
 <script>
   import { fade } from "svelte/transition"
   import { goto, params } from "@roxi/routify"
-  import { Table, Modal, Heading, notifications, Layout } from "@budibase/bbui"
-  import api from "builderStore/api"
+  import { Table, Heading, Layout } from "@budibase/bbui"
   import Spinner from "components/common/Spinner.svelte"
-  import DeleteRowsButton from "./buttons/DeleteRowsButton.svelte"
-  import CreateEditRow from "./modals/CreateEditRow.svelte"
-  import CreateEditUser from "./modals/CreateEditUser.svelte"
-  import CreateEditColumn from "./modals/CreateEditColumn.svelte"
   import {
     TableNames,
     UNEDITABLE_USER_FIELDS,
     UNSORTABLE_TYPES,
   } from "constants"
   import RoleCell from "./cells/RoleCell.svelte"
+  import { createEventDispatcher } from "svelte"
 
   export let schema = {}
   export let data = []
   export let tableId
   export let title
-  export let allowEditing = false
   export let loading = false
   export let hideAutocolumns
   export let rowCount
-  export let type
   export let disableSorting = false
+  export let customPlaceholder = false
+  export let allowEditing = true
+  export let allowClickRows
+
+  const dispatch = createEventDispatcher()
 
   let selectedRows = []
-  let editableColumn
-  let editableRow
-  let editRowModal
-  let editColumnModal
   let customRenderers = []
 
-  $: isInternal = type !== "external"
+  $: selectedRows, dispatch("selectionUpdated", selectedRows)
   $: isUsersTable = tableId === TableNames.USERS
   $: data && resetSelectedRows()
-  $: editRowComponent = isUsersTable ? CreateEditUser : CreateEditRow
   $: {
     UNSORTABLE_TYPES.forEach(type => {
-      Object.values(schema).forEach(col => {
+      Object.values(schema || {}).forEach(col => {
         if (col.type === type) {
           col.sortable = false
         }
@@ -86,52 +80,26 @@
       `/builder/app/${$params.application}/data/table/${tableId}/relationship/${rowId}/${fieldName}`
     )
   }
-
-  const deleteRows = async () => {
-    await api.delete(`/api/${tableId}/rows`, {
-      rows: selectedRows,
-    })
-    data = data.filter(row => !selectedRows.includes(row))
-    notifications.success(`Successfully deleted ${selectedRows.length} rows`)
-    selectedRows = []
-  }
-
-  const editRow = row => {
-    editableRow = row
-    if (row) {
-      editRowModal.show()
-    }
-  }
-
-  const editColumn = field => {
-    editableColumn = schema?.[field]
-    if (editableColumn) {
-      editColumnModal.show()
-    }
-  }
 </script>
 
 <Layout noPadding gap="S">
-  <div>
-    <div class="table-title">
-      {#if title}
-        <Heading size="S">{title}</Heading>
-      {/if}
-      {#if loading}
-        <div transition:fade|local>
-          <Spinner size="10" />
-        </div>
-      {/if}
-    </div>
+  <Layout noPadding gap="XS">
+    {#if title}
+      <div class="table-title">
+        <Heading size="M">{title}</Heading>
+        {#if loading}
+          <div transition:fade|local>
+            <Spinner size="10" />
+          </div>
+        {/if}
+      </div>
+    {/if}
     <div class="popovers">
       <slot />
-      {#if !isUsersTable && selectedRows.length > 0}
-        <DeleteRowsButton on:updaterows {selectedRows} {deleteRows} />
-      {/if}
     </div>
-  </div>
+  </Layout>
   {#key tableId}
-    <div class="table-wrapper" in:fade={{ delay: 200, duration: 100 }}>
+    <div class="table-wrapper">
       <Table
         {data}
         {schema}
@@ -139,30 +107,19 @@
         {customRenderers}
         {rowCount}
         {disableSorting}
-        bind:selectedRows
-        allowSelectRows={allowEditing && !isUsersTable}
+        {customPlaceholder}
         allowEditRows={allowEditing}
         allowEditColumns={allowEditing}
         showAutoColumns={!hideAutocolumns}
-        on:editcolumn={e => editColumn(e.detail)}
-        on:editrow={e => editRow(e.detail)}
+        {allowClickRows}
         on:clickrelationship={e => selectRelationship(e.detail)}
         on:sort
-      />
+      >
+        <slot slot="placeholder" name="placeholder" />
+      </Table>
     </div>
   {/key}
 </Layout>
-
-<Modal bind:this={editRowModal}>
-  <svelte:component this={editRowComponent} on:updaterows row={editableRow} />
-</Modal>
-<Modal bind:this={editColumnModal}>
-  <CreateEditColumn
-    field={editableColumn}
-    on:updatecolumns
-    onClosed={editColumnModal.hide}
-  />
-</Modal>
 
 <style>
   .table-title {

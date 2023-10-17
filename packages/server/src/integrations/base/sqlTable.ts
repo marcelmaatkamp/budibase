@@ -1,21 +1,29 @@
 import { Knex, knex } from "knex"
-import { Table } from "../../definitions/common"
-import { Operation, QueryJson } from "../../definitions/datasource"
+import {
+  FieldSubtype,
+  NumberFieldMetadata,
+  Operation,
+  QueryJson,
+  RenameColumn,
+  Table,
+} from "@budibase/types"
 import { breakExternalTableId } from "../utils"
 import SchemaBuilder = Knex.SchemaBuilder
 import CreateTableBuilder = Knex.CreateTableBuilder
-const { FieldTypes, RelationshipTypes } = require("../../constants")
+import { FieldTypes, RelationshipType } from "../../constants"
+import { utils } from "@budibase/shared-core"
 
 function generateSchema(
   schema: CreateTableBuilder,
   table: Table,
   tables: Record<string, Table>,
-  oldTable: null | Table = null
+  oldTable: null | Table = null,
+  renamed?: RenameColumn
 ) {
   let primaryKey = table && table.primary ? table.primary[0] : null
   const columns = Object.values(table.schema)
   // all columns in a junction table will be meta
-  let metaCols = columns.filter(col => col.meta)
+  let metaCols = columns.filter(col => (col as NumberFieldMetadata).meta)
   let isJunction = metaCols.length === columns.length
   // can't change primary once its set for now
   if (primaryKey && !oldTable && !isJunction) {
@@ -25,18 +33,38 @@ function generateSchema(
   }
 
   // check if any columns need added
-  const foreignKeys = Object.values(table.schema).map(col => col.foreignKey)
+  const foreignKeys = Object.values(table.schema).map(
+    col => (col as any).foreignKey
+  )
   for (let [key, column] of Object.entries(table.schema)) {
     // skip things that are already correct
     const oldColumn = oldTable ? oldTable.schema[key] : null
-    if ((oldColumn && oldColumn.type) || (primaryKey === key && !isJunction)) {
+    if (
+      (oldColumn && oldColumn.type) ||
+      (primaryKey === key && !isJunction) ||
+      renamed?.updated === key
+    ) {
       continue
     }
     switch (column.type) {
       case FieldTypes.STRING:
       case FieldTypes.OPTIONS:
       case FieldTypes.LONGFORM:
-        schema.string(key)
+      case FieldTypes.BARCODEQR:
+        schema.text(key)
+        break
+      case FieldTypes.BB_REFERENCE:
+        const subtype = column.subtype as FieldSubtype
+        switch (subtype) {
+          case FieldSubtype.USER:
+            schema.text(key)
+            break
+          case FieldSubtype.USERS:
+            schema.json(key)
+            break
+          default:
+            throw utils.unreachable(subtype)
+        }
         break
       case FieldTypes.NUMBER:
         // if meta is specified then this is a junction table entry
@@ -48,11 +76,16 @@ function generateSchema(
           schema.float(key)
         }
         break
+      case FieldTypes.BIGINT:
+        schema.bigint(key)
+        break
       case FieldTypes.BOOLEAN:
         schema.boolean(key)
         break
       case FieldTypes.DATETIME:
-        schema.datetime(key)
+        schema.datetime(key, {
+          useTz: !column.ignoreTimezones,
+        })
         break
       case FieldTypes.ARRAY:
         schema.json(key)
@@ -60,8 +93,8 @@ function generateSchema(
       case FieldTypes.LINK:
         // this side of the relationship doesn't need any SQL work
         if (
-          column.relationshipType !== RelationshipTypes.MANY_TO_ONE &&
-          column.relationshipType !== RelationshipTypes.MANY_TO_MANY
+          column.relationshipType !== RelationshipType.MANY_TO_ONE &&
+          column.relationshipType !== RelationshipType.MANY_TO_MANY
         ) {
           if (!column.foreignKey || !column.tableId) {
             throw "Invalid relationship schema"
@@ -72,13 +105,24 @@ function generateSchema(
           if (!relatedTable) {
             throw "Referenced table doesn't exist"
           }
-          schema.integer(column.foreignKey).unsigned()
+          const relatedPrimary = relatedTable.primary[0]
+          const externalType = relatedTable.schema[relatedPrimary].externalType
+          if (externalType) {
+            schema.specificType(column.foreignKey, externalType)
+          } else {
+            schema.integer(column.foreignKey).unsigned()
+          }
+
           schema
             .foreign(column.foreignKey)
-            .references(`${tableName}.${relatedTable.primary[0]}`)
+            .references(`${tableName}.${relatedPrimary}`)
         }
         break
     }
+  }
+
+  if (renamed) {
+    schema.renameColumn(renamed.old, renamed.updated)
   }
 
   // need to check if any columns have been deleted
@@ -86,10 +130,15 @@ function generateSchema(
     const deletedColumns = Object.entries(oldTable.schema)
       .filter(
         ([key, schema]) =>
-          schema.type !== FieldTypes.LINK && table.schema[key] == null
+          schema.type !== FieldTypes.LINK &&
+          schema.type !== FieldTypes.FORMULA &&
+          table.schema[key] == null
       )
       .map(([key]) => key)
     deletedColumns.forEach(key => {
+      if (renamed?.old === key) {
+        return
+      }
       if (oldTable.constrained && oldTable.constrained.indexOf(key) !== -1) {
         schema.dropForeign(key)
       }
@@ -101,28 +150,29 @@ function generateSchema(
 }
 
 function buildCreateTable(
-  knex: Knex,
+  knex: SchemaBuilder,
   table: Table,
   tables: Record<string, Table>
 ): SchemaBuilder {
-  return knex.schema.createTable(table.name, schema => {
+  return knex.createTable(table.name, schema => {
     generateSchema(schema, table, tables)
   })
 }
 
 function buildUpdateTable(
-  knex: Knex,
+  knex: SchemaBuilder,
   table: Table,
   tables: Record<string, Table>,
-  oldTable: Table
+  oldTable: Table,
+  renamed: RenameColumn
 ): SchemaBuilder {
-  return knex.schema.alterTable(table.name, schema => {
-    generateSchema(schema, table, tables, oldTable)
+  return knex.alterTable(table.name, schema => {
+    generateSchema(schema, table, tables, oldTable, renamed)
   })
 }
 
-function buildDeleteTable(knex: Knex, table: Table): SchemaBuilder {
-  return knex.schema.dropTable(table.name)
+function buildDeleteTable(knex: SchemaBuilder, table: Table): SchemaBuilder {
+  return knex.dropTable(table.name)
 }
 
 class SqlTableQueryBuilder {
@@ -146,7 +196,11 @@ class SqlTableQueryBuilder {
   }
 
   _tableQuery(json: QueryJson): any {
-    const client = knex({ client: this.sqlClient })
+    let client = knex({ client: this.sqlClient }).schema
+    if (json?.endpoint?.schema) {
+      client = client.withSchema(json.endpoint.schema)
+    }
+
     let query
     if (!json.table || !json.meta || !json.meta.tables) {
       throw "Cannot execute without table being specified"
@@ -163,7 +217,8 @@ class SqlTableQueryBuilder {
           client,
           json.table,
           json.meta.tables,
-          json.meta.table
+          json.meta.table,
+          json.meta.renamed!
         )
         break
       case Operation.DELETE_TABLE:
@@ -177,4 +232,3 @@ class SqlTableQueryBuilder {
 }
 
 export default SqlTableQueryBuilder
-module.exports = SqlTableQueryBuilder

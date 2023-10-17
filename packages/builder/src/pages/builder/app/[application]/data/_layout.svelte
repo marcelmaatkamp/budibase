@@ -1,87 +1,56 @@
 <script>
-  import { goto, params } from "@roxi/routify"
-  import { Icon, Tabs, Tab } from "@budibase/bbui"
-  import { BUDIBASE_INTERNAL_DB } from "constants"
+  import { Button, Layout } from "@budibase/bbui"
   import DatasourceNavigator from "components/backend/DatasourceNavigator/DatasourceNavigator.svelte"
-  import CreateDatasourceModal from "components/backend/DatasourceNavigator/modals/CreateDatasourceModal.svelte"
+  import Panel from "components/design/Panel.svelte"
+  import { isActive, redirect, goto, params } from "@roxi/routify"
+  import BetaButton from "./_components/BetaButton.svelte"
+  import { datasources } from "stores/backend"
 
-  let selected = "Sources"
-
-  let modal
-
-  $: isExternal =
-    $params.selectedDatasource &&
-    $params.selectedDatasource !== BUDIBASE_INTERNAL_DB
-
-  function selectFirstDatasource() {
-    $goto("./table")
+  $: {
+    // If we ever don't have any data other than the users table, prompt the
+    // user to add some
+    // Don't redirect if setting up google sheets, or we lose the query parameter
+    if (!$datasources.hasData && !$params["?continue_google_setup"]) {
+      $redirect("./new")
+    }
   }
 </script>
 
-<!-- routify:options index=0 -->
-<div class="root">
-  <div class="nav">
-    <Tabs {selected} on:select={selectFirstDatasource}>
-      <Tab title="Sources">
-        <div class="tab-content-padding">
-          <DatasourceNavigator />
-          <CreateDatasourceModal bind:modal />
-        </div>
-      </Tab>
-    </Tabs>
-    <div
-      class="add-button"
-      data-cy={`new-${isExternal ? "datasource" : "table"}`}
-    >
-      <Icon hoverable name="AddCircle" on:click={modal.show} />
-    </div>
-  </div>
+<!-- routify:options index=1 -->
+<div class="data">
+  {#if !$isActive("./new")}
+    <Panel title="Sources" borderRight>
+      <Layout paddingX="L" paddingY="XL" gap="S">
+        <Button cta on:click={() => $goto("./new")}>Add source</Button>
+        <DatasourceNavigator />
+      </Layout>
+    </Panel>
+  {/if}
+
   <div class="content">
     <slot />
   </div>
+  <BetaButton />
 </div>
 
 <style>
-  .root {
+  .data {
     flex: 1 1 auto;
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: stretch;
     height: 0;
-    display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
   }
-
   .content {
-    flex: 1 1 auto;
-    padding: var(--spacing-l) 40px 40px 40px;
+    padding: 28px 40px 40px 40px;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: stretch;
     gap: var(--spacing-l);
-  }
-  .content :global(> span) {
-    display: contents;
-  }
-
-  .tab-content-padding {
-    padding: 0 var(--spacing-xl);
-  }
-
-  .nav {
-    overflow-y: auto;
-    background: var(--background);
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
-    position: relative;
-    border-right: var(--border-light);
-    padding-bottom: 60px;
-  }
-
-  .add-button {
-    position: absolute;
-    top: var(--spacing-l);
-    right: var(--spacing-xl);
+    flex: 1 1 auto;
+    z-index: 1;
   }
 </style>

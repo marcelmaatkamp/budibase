@@ -1,5 +1,5 @@
 <script>
-  import api from "builderStore/api"
+  import { API } from "api"
   import { tables } from "stores/backend"
 
   import Table from "./Table.svelte"
@@ -9,6 +9,8 @@
   import ExportButton from "./buttons/ExportButton.svelte"
   import ManageAccessButton from "./buttons/ManageAccessButton.svelte"
   import HideAutocolumnButton from "./buttons/HideAutocolumnButton.svelte"
+  import { notifications } from "@budibase/bbui"
+  import { ROW_EXPORT_FORMATS } from "constants/backend"
 
   export let view = {}
 
@@ -18,35 +20,41 @@
   let type = "internal"
 
   $: name = view.name
+  $: calculation = view.calculation
+
+  $: supportedFormats = Object.values(ROW_EXPORT_FORMATS).filter(key => {
+    if (calculation && key === ROW_EXPORT_FORMATS.JSON_WITH_SCHEMA) {
+      return false
+    }
+    return true
+  })
 
   // Fetch rows for specified view
-  $: {
-    loading = true
-    fetchViewData(name, view.field, view.groupBy, view.calculation)
-  }
+  $: fetchViewData(name, view.field, view.groupBy, view.calculation)
 
   async function fetchViewData(name, field, groupBy, calculation) {
+    loading = true
     const _tables = $tables.list
     const allTableViews = _tables.map(table => table.views)
     const thisView = allTableViews.filter(
       views => views != null && views[name] != null
     )[0]
 
-    // don't fetch view data if the view no longer exists
+    // Don't fetch view data if the view no longer exists
     if (!thisView) {
+      loading = false
       return
     }
-    const params = new URLSearchParams()
-    if (calculation) {
-      params.set("field", field)
-      params.set("calculation", calculation)
+    try {
+      data = await API.fetchViewData({
+        name,
+        calculation,
+        field,
+        groupBy,
+      })
+    } catch (error) {
+      notifications.error("Error fetching view data")
     }
-    if (groupBy) {
-      params.set("group", groupBy)
-    }
-    const QUERY_VIEW_URL = `/api/views/${name}?${params}`
-    const response = await api.get(QUERY_VIEW_URL)
-    data = await response.json()
     loading = false
   }
 </script>
@@ -58,7 +66,8 @@
   {data}
   {loading}
   {type}
-  allowEditing={!view?.calculation}
+  rowCount={10}
+  allowEditing={false}
   bind:hideAutocolumns
 >
   <ViewFilterButton {view} />
@@ -68,5 +77,5 @@
   {/if}
   <ManageAccessButton resourceId={decodeURI(name)} />
   <HideAutocolumnButton bind:hideAutocolumns />
-  <ExportButton view={view.name} />
+  <ExportButton view={view.name} formats={supportedFormats} />
 </Table>

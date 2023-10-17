@@ -14,6 +14,10 @@
   export let getOptionLabel = option => option
   export let getOptionValue = option => option
   export let sort = false
+  export let autoWidth = false
+  export let autocomplete = false
+  export let searchTerm = null
+  export let customPopoverHeight
 
   const dispatch = createEventDispatcher()
   const onChange = e => {
@@ -33,6 +37,10 @@
     {sort}
     {getOptionLabel}
     {getOptionValue}
+    {autoWidth}
+    {autocomplete}
+    {customPopoverHeight}
+    bind:searchTerm
     on:change={onChange}
     on:click
   />

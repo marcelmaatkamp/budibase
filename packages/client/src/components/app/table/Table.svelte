@@ -3,20 +3,21 @@
   import { Table } from "@budibase/bbui"
   import SlotRenderer from "./SlotRenderer.svelte"
   import { UnsortableTypes } from "../../../constants"
+  import { onDestroy } from "svelte"
 
   export let dataProvider
   export let columns
-  export let showAutoColumns
   export let rowCount
   export let quiet
   export let size
-  export let linkRows
-  export let linkURL
-  export let linkColumn
-  export let linkPeek
+  export let allowSelectRows
+  export let compact
+  export let onClick
+  export let noRowsMessage
 
   const component = getContext("component")
-  const { styleable, getAction, ActionTypes, routeStore } = getContext("sdk")
+  const { styleable, getAction, ActionTypes, rowSelectionStore } =
+    getContext("sdk")
   const customColumnKey = `custom-${Math.random()}`
   const customRenderers = [
     {
@@ -25,22 +26,41 @@
     },
   ]
 
+  let selectedRows = []
+
   $: hasChildren = $component.children
   $: loading = dataProvider?.loading ?? false
   $: data = dataProvider?.rows || []
   $: fullSchema = dataProvider?.schema ?? {}
-  $: fields = getFields(fullSchema, columns, showAutoColumns)
+  $: fields = getFields(fullSchema, columns, false)
   $: schema = getFilteredSchema(fullSchema, fields, hasChildren)
   $: setSorting = getAction(
     dataProvider?.id,
     ActionTypes.SetDataProviderSorting
   )
+  $: table = dataProvider?.datasource?.type === "table"
+  $: {
+    rowSelectionStore.actions.updateSelection(
+      $component.id,
+      selectedRows.length ? selectedRows[0].tableId : "",
+      selectedRows.map(row => row._id)
+    )
+  }
+
+  // If the data changes, double check that the selected elements are still present.
+  $: if (data) {
+    let rowIds = data.map(row => row._id)
+    if (rowIds.length) {
+      selectedRows = selectedRows.filter(row => rowIds.includes(row._id))
+    }
+  }
 
   const getFields = (schema, customColumns, showAutoColumns) => {
     // Check for an invalid column selection
     let invalid = false
     customColumns?.forEach(column => {
-      if (schema[column] == null) {
+      const columnName = typeof column === "string" ? column : column.name
+      if (schema[columnName] == null) {
         invalid = true
       }
     })
@@ -71,13 +91,27 @@
         order: 0,
         sortable: false,
         divider: true,
+        width: "auto",
+        preventSelectRow: true,
       }
     }
 
     fields.forEach(field => {
-      newSchema[field] = schema[field]
-      if (schema[field] && UnsortableTypes.indexOf(schema[field].type) !== -1) {
-        newSchema[field].sortable = false
+      const columnName = typeof field === "string" ? field : field.name
+      if (!schema[columnName]) {
+        return
+      }
+      newSchema[columnName] = schema[columnName]
+      if (UnsortableTypes.includes(schema[columnName].type)) {
+        newSchema[columnName].sortable = false
+      }
+
+      // Add additional settings like width etc
+      if (typeof field === "object") {
+        newSchema[columnName] = {
+          ...newSchema[columnName],
+          ...field,
+        }
       }
     })
     return newSchema
@@ -90,18 +124,15 @@
     })
   }
 
-  const onClick = e => {
-    if (!linkRows || !linkURL) {
-      return
+  const handleClick = e => {
+    if (onClick) {
+      onClick({ row: e.detail })
     }
-    const col = linkColumn || "_id"
-    const id = e.detail?.[col]
-    if (!id) {
-      return
-    }
-    const split = linkURL.split("/:")
-    routeStore.actions.navigate(`${split[0]}/${id}`, linkPeek)
   }
+
+  onDestroy(() => {
+    rowSelectionStore.actions.updateSelection($component.id, [])
+  })
 </script>
 
 <div use:styleable={$component.styles} class={size}>
@@ -111,21 +142,33 @@
     {loading}
     {rowCount}
     {quiet}
+    {compact}
     {customRenderers}
-    allowSelectRows={false}
+    allowSelectRows={allowSelectRows && table}
+    bind:selectedRows
     allowEditRows={false}
     allowEditColumns={false}
     showAutoColumns={true}
     disableSorting
+    autoSortColumns={!columns?.length}
     on:sort={onSort}
-    on:click={onClick}
+    on:click={handleClick}
+    placeholderText={noRowsMessage || "No rows found"}
   >
     <slot />
   </Table>
+  {#if allowSelectRows && selectedRows.length}
+    <div class="row-count">
+      {selectedRows.length} row{selectedRows.length === 1 ? "" : "s"} selected
+    </div>
+  {/if}
 </div>
 
 <style>
   div {
     background-color: var(--spectrum-alias-background-color-secondary);
+  }
+  .row-count {
+    margin-top: var(--spacing-l);
   }
 </style>
